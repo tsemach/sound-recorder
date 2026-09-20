@@ -1,17 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const { listeners, mockInvoke } = vi.hoisted(() => ({
+const { listeners, mockInvoke, mockListen } = vi.hoisted(() => ({
   listeners: {} as Record<string, (event: { payload: unknown }) => void>,
   mockInvoke: vi.fn(),
-}))
-
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: mockInvoke,
-}))
-
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(
+  mockListen: vi.fn(
     (
       event: string,
       callback: (event: { payload: unknown }) => void
@@ -24,6 +17,14 @@ vi.mock("@tauri-apps/api/event", () => ({
   ),
 }))
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: mockInvoke,
+}))
+
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: mockListen,
+}))
+
 import { useRecordingState } from "./useRecordingState"
 
 describe("useRecordingState", () => {
@@ -32,6 +33,18 @@ describe("useRecordingState", () => {
     mockInvoke.mockResolvedValue([
       { id: "fake-system-audio", name: "Fake System Audio" },
     ])
+    mockListen.mockReset()
+    mockListen.mockImplementation(
+      (
+        event: string,
+        callback: (event: { payload: unknown }) => void
+      ) => {
+        listeners[event] = callback
+        return Promise.resolve(() => {
+          delete listeners[event]
+        })
+      }
+    )
   })
 
   it("loads sources on mount", async () => {
@@ -97,5 +110,35 @@ describe("useRecordingState", () => {
     })
 
     expect(result.current.error).toBe("Cannot pause unless recording")
+  })
+
+  it("cleans up event listeners even if unmounted before promise resolves (StrictMode race fix)", async () => {
+    const unlistenSpies: Array<ReturnType<typeof vi.fn>> = [vi.fn(), vi.fn()]
+    const resolveFns: Array<(fn: () => void) => void> = []
+
+    mockListen.mockImplementation(() => {
+      return new Promise<() => void>((resolve) => {
+        resolveFns.push(resolve)
+      })
+    })
+
+    const { unmount } = renderHook(() => useRecordingState())
+
+    // Unmount before the listen() promises resolve (simulating StrictMode cleanup)
+    unmount()
+
+    // Now resolve the promises with unlisten functions
+    await act(async () => {
+      if (resolveFns[0] && unlistenSpies[0]) {
+        resolveFns[0](unlistenSpies[0] as () => void)
+      }
+      if (resolveFns[1] && unlistenSpies[1]) {
+        resolveFns[1](unlistenSpies[1] as () => void)
+      }
+    })
+
+    // Verify both unlisten functions were called immediately (proving no listener leak)
+    expect(unlistenSpies[0]).toHaveBeenCalled()
+    expect(unlistenSpies[1]).toHaveBeenCalled()
   })
 })

@@ -38,20 +38,29 @@ export function useRecordingState() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
     let unlistenState: (() => void) | undefined
     let unlistenTick: (() => void) | undefined
 
     listen<RecordingState>("recording-state-changed", (event) => {
       setState(event.payload)
     }).then((fn) => {
-      unlistenState = fn
+      if (cancelled) {
+        fn()
+      } else {
+        unlistenState = fn
+      }
     })
 
     listen<Tick>("recording-tick", (event) => {
       setElapsedMs(event.payload.elapsed_ms)
       setLevel(event.payload.level)
     }).then((fn) => {
-      unlistenTick = fn
+      if (cancelled) {
+        fn()
+      } else {
+        unlistenTick = fn
+      }
     })
 
     invoke<AudioSource[]>("list_sources")
@@ -59,6 +68,7 @@ export function useRecordingState() {
       .catch((err) => setError(errorMessage(err)))
 
     return () => {
+      cancelled = true
       unlistenState?.()
       unlistenTick?.()
     }
