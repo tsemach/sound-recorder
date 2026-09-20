@@ -1,3 +1,5 @@
+mod capture;
+
 #[tauri::command]
 fn ping() -> String {
   "pong".to_string()
