@@ -5,9 +5,12 @@ use std::time::Duration;
 
 use super::{AudioCapture, AudioSource, CaptureError, FrameCallback};
 
+#[allow(dead_code)] // Unused until Task 3 wires AudioCapture into commands.rs
 const SAMPLE_RATE: f32 = 48_000.0;
+#[allow(dead_code)] // Unused until Task 3 wires AudioCapture into commands.rs
 const BUFFER_MS: u64 = 20;
 
+#[allow(dead_code)] // Unused until Task 3 wires AudioCapture into commands.rs
 pub struct FakeCapture {
   running: Arc<AtomicBool>,
   paused: Arc<AtomicBool>,
@@ -15,6 +18,7 @@ pub struct FakeCapture {
 }
 
 impl FakeCapture {
+  #[allow(dead_code)] // Unused until Task 3 wires AudioCapture into commands.rs
   pub fn new() -> Self {
     Self {
       running: Arc::new(AtomicBool::new(false)),
