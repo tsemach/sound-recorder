@@ -1,3 +1,8 @@
+// Not yet wired into production (lib.rs still uses FakeCapture) — a later
+// task in this same plan swaps that wiring. Until then, nothing outside
+// this module's own tests constructs LinuxPulseCapture.
+#![allow(dead_code)]
+
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
