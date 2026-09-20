@@ -1,13 +1,13 @@
 ---
 name: debug
 description: >-
-  Guides the agent in building, running, and visually inspecting this Next.js app using pnpm and Playwright.
+  Guides the agent in building, running, and visually inspecting this Vite app using pnpm and Playwright.
 ---
 
-# Next.js Application Debugging
+# Vite Application Debugging
 
 ## Overview
-This skill provides a standard operating procedure for compiling, launching, and visually debugging this Next.js (App Router) application.
+This skill provides a standard operating procedure for compiling, launching, and visually debugging this Vite (React) application.
 
 ## Dependencies
 `@playwright/test` (devDependency) with the Chromium browser installed. Install once with:
@@ -24,7 +24,7 @@ pnpm lint
 ```
 
 ### 2. Launch the Application (Dev Server)
-Start the Next.js dev server (defaults to `http://localhost:3000`):
+Start the Vite dev server (fixed at `http://localhost:1420`, `strictPort: true`):
 ```bash
 pnpm dev
 ```
@@ -50,14 +50,14 @@ If linting/type-checking fails, **stop immediately** and report the errors to th
 ```bash
 pnpm dev
 ```
-This starts Next.js on port `3000` by default. Run it with `run_in_background` (or in a separate terminal) so you can drive it with Playwright while it stays up. For a production-accurate check, use `pnpm build && pnpm start` instead.
+This starts Vite on port `1420` (`strictPort: true`, so it fails fast instead of picking another port if `1420` is already in use). Run it with `run_in_background` (or in a separate terminal) so you can drive it with Playwright while it stays up. For a production-accurate check, use `pnpm build && pnpm --filter sound-app preview` instead.
 
 ### 3. Playwright Headless Automation & Visual Inspection
 To check how the React UI actually renders:
-1. Ensure the dev server is active on `http://localhost:3000`.
+1. Ensure the dev server is active on `http://localhost:1420`.
 2. Write/use a headless script (e.g. `scratch/check_ui.js`) to:
    * Launch Chromium via `@playwright/test`'s `chromium.launch()`.
-   * Navigate to `http://localhost:3000` (or `/login`, or any route under test).
+   * Navigate to `http://localhost:1420` (or any route under test).
    * Wait for the page to be idle / key content to mount.
    * Save a screenshot (e.g. `scratch/screenshot.png`).
    * Optionally print the rendered DOM or run assertions.
@@ -71,7 +71,7 @@ const { chromium } = require('@playwright/test')
 ;(async () => {
   const browser = await chromium.launch()
   const page = await browser.newPage()
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle' })
+  await page.goto('http://localhost:1420', { waitUntil: 'networkidle' })
   await page.screenshot({ path: 'scratch/screenshot.png', fullPage: true })
   console.log(await page.content())
   await browser.close()
@@ -83,6 +83,6 @@ const { chromium } = require('@playwright/test')
 ## Common Mistakes & Pitfalls
 
 * **Using `npm` instead of `pnpm`:** This project uses `pnpm` (`pnpm-lock.yaml` is the lockfile). Never run `npm run dev` / `npm install`.
-* **Forgetting the dev server is a prerequisite:** Playwright will fail to connect if `pnpm dev` isn't already running on port `3000`.
-* **Port conflicts:** If port `3000` is taken by another running instance, either stop it or pass `-p <port>` to `pnpm dev` and update the script's URL accordingly.
+* **Forgetting the dev server is a prerequisite:** Playwright will fail to connect if `pnpm dev` isn't already running on port `1420`.
+* **Port conflicts:** If port `1420` is already in use, Vite exits with an error instead of picking another port (`strictPort: true` in `vite.config.ts`). Stop the conflicting process, or pass `--port <port>` to `pnpm dev` and update the script's URL accordingly.
 * **Auto-installing browser binaries silently:** If `chromium.launch()` fails because the browser isn't installed, run `pnpm exec playwright install chromium` — don't paper over it with unrelated workarounds.

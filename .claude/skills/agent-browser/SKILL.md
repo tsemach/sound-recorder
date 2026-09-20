@@ -39,7 +39,7 @@ Run `agent-browser skills list` to see everything available on the installed ver
 
 ## Usage in this repo
 
-`pnpm dev` starts the Next.js dev server at `http://localhost:3000`. Point agent-browser at that URL to click through the marketing site (`/`) or the login page (`/login`) — there's no auth wired up yet, so `/login` is form-only.
+`pnpm dev` starts the Vite dev server at `http://localhost:1420`. Point agent-browser at that URL to click through the marketing site (`/`) or the login page (`/login`) — there's no auth wired up yet, so `/login` is form-only.
 
 ## Why agent-browser
 
