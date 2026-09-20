@@ -1,4 +1,5 @@
 pub mod fake;
+pub mod linux_pulse;
 
 #[derive(Clone, serde::Serialize)]
 pub struct AudioSource {
