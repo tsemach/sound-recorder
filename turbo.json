@@ -19,6 +19,9 @@
     "test": {
       "dependsOn": ["^test"]
     },
+    "test:rust": {
+      "dependsOn": ["^test:rust"]
+    },
     "dev": {
       "cache": false,
       "persistent": true
