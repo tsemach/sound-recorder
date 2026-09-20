@@ -12,20 +12,20 @@ Sound Recorder — a pair of local-first apps that capture digital audio current
 - Write audio incrementally (no full-recording-in-memory) and use temp files + atomic rename on finalize.
 
 Two target apps described in the PRD:
-- **sound-app** (`apps/sound-app`) — desktop app. Currently scaffolded as a Next.js frontend (the PRD calls for an eventual Tauri + Rust backend for capture/file writing/device access — not yet present in this repo).
+- **sound-app** (`apps/sound-app`) — desktop app. Vite + React 19 frontend (migrated off Next.js — see `docs/superpowers/specs/2026-09-20-sound-app-tauri-migration-design.md`); the PRD calls for an eventual Tauri + Rust backend for capture/file writing/device access — not yet present in this repo.
 - **mobile-app** (`apps/mobile-app`) — React Native mobile app. Directory exists but is not yet scaffolded (empty).
 
 ## Repo structure
 
 This is a pnpm + Turborepo monorepo (`pnpm-workspace.yaml` includes `apps/*` and `packages/*`).
 
-- `apps/sound-app` — Next.js 16 app (React 19, Tailwind v4, shadcn/ui via `components.json`).
+- `apps/sound-app` — Vite + React 19 app (Tailwind v4, shadcn/ui via `components.json`, Vitest for tests). Tauri backend under `src-tauri/` lands in a follow-up PR.
 - `apps/mobile-app` — reserved for the React Native app; not yet implemented.
 - `packages/ui` (`@workspace/ui`) — shared shadcn/ui component library consumed by apps via `@workspace/ui/components/*`, `@workspace/ui/hooks/*`, `@workspace/ui/lib/*`, and `@workspace/ui/globals.css`.
 - `packages/eslint-config` (`@workspace/eslint-config`) — shared ESLint flat configs (`base.js`, `next.js`, `react-internal.js`) consumed by each app/package's own `eslint.config.js`.
 - `packages/typescript-config` (`@workspace/typescript-config`) — shared `tsconfig` bases (`base.json`, `nextjs.json`, `react-library.json`).
 
-Turbo pipeline tasks (`turbo.json`) are `build`, `lint`, `format`, `typecheck`, `dev` — each workspace package defines its own script for these, and `turbo` fans them out respecting `dependsOn: ["^task"]` ordering.
+Turbo pipeline tasks (`turbo.json`) are `build`, `lint`, `format`, `typecheck`, `test`, `dev` — each workspace package defines its own script for these, and `turbo` fans them out respecting `dependsOn: ["^task"]` ordering.
 
 ## Commands
 
@@ -39,15 +39,17 @@ pnpm build              # turbo build
 pnpm lint               # turbo lint
 pnpm format             # turbo format
 pnpm typecheck          # turbo typecheck
+pnpm test               # turbo test
 
 # scope to a single package, e.g. the sound-app:
 pnpm --filter sound-app dev
 pnpm --filter sound-app build
 pnpm --filter sound-app lint
 pnpm --filter sound-app typecheck
+pnpm --filter sound-app test
 ```
 
-There is no test runner configured yet in this repo (no test script in any `package.json`).
+Test runner: `sound-app` has Vitest configured; run `pnpm test` to execute tests for packages that define a `test` script.
 
 ### Adding shadcn/ui components
 
@@ -58,10 +60,6 @@ pnpm dlx shadcn@latest add button -c apps/sound-app
 ```
 
 Components are placed in `packages/ui/src/components` and consumed from apps via `import { Button } from "@workspace/ui/components/button"`.
-
-## Important: Next.js version caveat
-
-`apps/sound-app` depends on `next@16.3.3`, a version described in `apps/sound-app/AGENTS.md` as having breaking changes relative to typical training-data knowledge of Next.js (APIs, conventions, and file structure may differ). Before writing or modifying Next.js code in `apps/sound-app`, consult `apps/sound-app/node_modules/next/dist/docs/` (in particular `01-app`, `02-pages`, `03-architecture`) rather than relying on prior Next.js knowledge, and heed any deprecation notices found there.
 
 ## Formatting
 
