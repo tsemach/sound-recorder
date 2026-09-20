@@ -5,10 +5,7 @@ const { listeners, mockInvoke, mockListen } = vi.hoisted(() => ({
   listeners: {} as Record<string, (event: { payload: unknown }) => void>,
   mockInvoke: vi.fn(),
   mockListen: vi.fn(
-    (
-      event: string,
-      callback: (event: { payload: unknown }) => void
-    ) => {
+    (event: string, callback: (event: { payload: unknown }) => void) => {
       listeners[event] = callback
       return Promise.resolve(() => {
         delete listeners[event]
@@ -35,10 +32,7 @@ describe("useRecordingState", () => {
     ])
     mockListen.mockReset()
     mockListen.mockImplementation(
-      (
-        event: string,
-        callback: (event: { payload: unknown }) => void
-      ) => {
+      (event: string, callback: (event: { payload: unknown }) => void) => {
         listeners[event] = callback
         return Promise.resolve(() => {
           delete listeners[event]

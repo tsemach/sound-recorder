@@ -49,7 +49,7 @@ export function App() {
         <h1 className="font-medium">Sound Recorder</h1>
 
         {error && (
-          <div className="border-destructive text-destructive rounded border p-2 text-sm">
+          <div className="rounded border border-destructive p-2 text-sm text-destructive">
             {error}
           </div>
         )}
@@ -73,9 +73,9 @@ export function App() {
         </div>
 
         {isActive && (
-          <div className="bg-muted h-2 w-full max-w-xs rounded">
+          <div className="h-2 w-full max-w-xs rounded bg-muted">
             <div
-              className="bg-primary h-2 rounded transition-all"
+              className="h-2 rounded bg-primary transition-all"
               style={{ width: `${Math.min(level, 1) * 100}%` }}
             />
           </div>
@@ -93,7 +93,9 @@ export function App() {
           {isPaused && (
             <Button onClick={() => void resumeRecording()}>Resume</Button>
           )}
-          {isActive && <Button onClick={() => void stopRecording()}>Stop</Button>}
+          {isActive && (
+            <Button onClick={() => void stopRecording()}>Stop</Button>
+          )}
           {isActive && <Button onClick={handleCancel}>Cancel</Button>}
         </div>
       </div>
