@@ -1,3 +1,9 @@
+// Kept for its own test coverage of the AudioCapture contract (a fast,
+// deterministic reference implementation) — production wiring uses
+// LinuxPulseCapture as of PR 4, so nothing outside this module's tests
+// constructs FakeCapture anymore.
+#![allow(dead_code)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
