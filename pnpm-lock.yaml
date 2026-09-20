@@ -29,6 +29,9 @@ importers:
 
   apps/sound-app:
     dependencies:
+      '@tauri-apps/api':
+        specifier: ^2.11.1
+        version: 2.11.1
       '@workspace/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -1042,6 +1045,9 @@ packages:
 
   '@tailwindcss/postcss@4.3.0':
     resolution: {integrity: sha512-Jm05Tjx+9yCLGv5qw1c+84Psds8MnyrEQYCB+FFk2lgGiUjlRqdxke4mVTuYrj2xnVZqKim2Apr5ySuQRYAw/w==}
+
+  '@tauri-apps/api@2.11.1':
+    resolution: {integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==}
 
   '@testing-library/dom@10.4.2':
     resolution: {integrity: sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q==}
@@ -4322,6 +4328,8 @@ snapshots:
       '@tailwindcss/oxide': 4.3.0
       postcss: 8.5.23
       tailwindcss: 4.3.0
+
+  '@tauri-apps/api@2.11.1': {}
 
   '@testing-library/dom@10.4.2':
     dependencies:
