@@ -128,3 +128,10 @@ IPC bridge, not as a permanent feature.
   desktop shell instead of the web-only Vite server.
 - Windows/macOS-specific Tauri configuration (this PR's manual verification
   is Linux-only, matching PR 1's OS-priority decision).
+
+---
+
+## Deviations from this spec (recorded after implementation)
+
+- This spec's "Capabilities posture" section assumed `tauri-plugin-opener` would be present in the generated scaffold and need removing. In practice, `@tauri-apps/cli@2.11.5`'s `init` command never generates it — there was nothing to prune. `capabilities/default.json` ships with only `"core:default"` from the start.
+- Content Security Policy (`tauri.conf.json`'s `"security": { "csp": null }`) was left at the CLI's generated default (no CSP at all) in this PR. This is a real gap against PRD §6.2's "restrictive... avoid unnecessary network access" posture that this spec did not address. **Deferred to PR 3's planning** — setting a proper CSP needs a live `tauri dev` run to confirm it doesn't break Vite's dev-server/HMR origin, which needs to happen as part of implementation work, not retroactively.

@@ -52,7 +52,7 @@ importers:
         specifier: ^4
         version: 4.3.0
       '@tauri-apps/cli':
-        specifier: ^2
+        specifier: ^2.11
         version: 2.11.5
       '@testing-library/jest-dom':
         specifier: ^7.0.1

@@ -478,3 +478,10 @@ git commit -m "docs: note Tauri shell is now present in sound-app"
 6. **Storage checks + error surfacing** — disk-space checks, `Error` state wired to a UI error banner.
 7. **Recordings list screen** — scan save dir, list/play/rename/delete/reveal.
 8. **Settings screen** — save-location picker, filename template, source/quality selection persisted.
+
+---
+
+## Deviations from this plan (recorded after implementation)
+
+- **Task 1, Step 5** only added `@tauri-apps/api` as a dependency. The `"tauri": "tauri"` script it also added had no local `@tauri-apps/cli` devDependency to resolve, so `pnpm tauri dev` failed with "command not found" until Task 4 added `"@tauri-apps/cli": "^2.11"` as a devDependency — a genuine plan gap, not an implementation error.
+- `apps/sound-app/src-tauri/Cargo.toml` gained explicit `features = []` on the `tauri`/`tauri-build` dependencies after the first real `cargo run` (not just `cargo check`) — Tauri's build tooling makes previously-implicit empty feature sets explicit. No behavior change (confirmed: `Cargo.lock` was untouched by this).

@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
+import { invoke } from "@tauri-apps/api/core"
+
 import { App } from "./App"
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -25,5 +27,6 @@ describe("App", () => {
     render(<App />)
     fireEvent.click(screen.getByRole("button", { name: "Ping backend" }))
     await waitFor(() => expect(screen.getByText("pong")).toBeInTheDocument())
+    expect(invoke).toHaveBeenCalledWith("ping")
   })
 })
