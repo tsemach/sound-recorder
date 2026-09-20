@@ -41,6 +41,30 @@ pub fn start_recording(
 
   emit_state(&app, &state, RecordingState::Preparing);
 
+  match try_start(&source_id, &state, &app) {
+    Ok(source_name) => {
+      emit_state(
+        &app,
+        &state,
+        RecordingState::Recording {
+          source_name,
+          elapsed_ms: 0,
+        },
+      );
+      Ok(())
+    }
+    Err(e) => {
+      emit_state(&app, &state, RecordingState::Idle);
+      Err(e)
+    }
+  }
+}
+
+fn try_start(
+  source_id: &str,
+  state: &SharedState,
+  app: &AppHandle,
+) -> Result<String, CommandError> {
   let sources = state
     .capture
     .lock()
@@ -68,19 +92,10 @@ pub fn start_recording(
     .capture
     .lock()
     .unwrap()
-    .start(&source_id, on_frame)
+    .start(source_id, on_frame)
     .map_err(|e| CommandError::new(e.message))?;
 
-  emit_state(
-    &app,
-    &state,
-    RecordingState::Recording {
-      source_name,
-      elapsed_ms: 0,
-    },
-  );
-
-  Ok(())
+  Ok(source_name)
 }
 
 /// Builds the callback passed to `AudioCapture::start`. Each fake (or, later, real) PCM
@@ -170,34 +185,35 @@ pub fn resume_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
 
 #[tauri::command]
 pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), CommandError> {
-  {
+  let previous_state = {
     let current = state.state.lock().unwrap();
     if !current.can_stop() {
       return Err(CommandError::new("Cannot stop unless recording or paused"));
     }
-  }
+    current.clone()
+  };
 
   emit_state(&app, &state, RecordingState::Saving);
 
-  state
-    .capture
-    .lock()
-    .unwrap()
-    .stop()
-    .map_err(|e| CommandError::new(e.message))?;
-
-  let duration_ms = *state.elapsed_ms.lock().unwrap();
-  emit_state(
-    &app,
-    &state,
-    RecordingState::Saved {
-      file_path: "fake-recording.wav".to_string(),
-      duration_ms,
-      size_bytes: 0,
-    },
-  );
-
-  Ok(())
+  match state.capture.lock().unwrap().stop() {
+    Ok(()) => {
+      let duration_ms = *state.elapsed_ms.lock().unwrap();
+      emit_state(
+        &app,
+        &state,
+        RecordingState::Saved {
+          file_path: "fake-recording.wav".to_string(),
+          duration_ms,
+          size_bytes: 0,
+        },
+      );
+      Ok(())
+    }
+    Err(e) => {
+      emit_state(&app, &state, previous_state);
+      Err(CommandError::new(e.message))
+    }
+  }
 }
 
 #[tauri::command]
