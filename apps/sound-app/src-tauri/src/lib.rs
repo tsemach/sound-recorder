@@ -1,4 +1,5 @@
 mod capture;
+mod state;
 
 #[tauri::command]
 fn ping() -> String {
