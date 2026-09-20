@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use super::{AudioCapture, AudioSource, CaptureError, FrameCallback};
+use super::{AudioCapture, AudioFormat, AudioSource, CaptureError, FrameCallback};
 
 const SAMPLE_RATE: f32 = crate::tick::SAMPLE_RATE_HZ as f32;
 const BUFFER_MS: u64 = 20;
@@ -63,13 +63,20 @@ impl AudioCapture for FakeCapture {
           phase += 2.0 * std::f32::consts::PI * frequency / SAMPLE_RATE;
         }
 
-        on_frame(buffer);
+        on_frame(Ok(buffer));
         thread::sleep(Duration::from_millis(BUFFER_MS));
       }
     });
 
     self.handle = Some(handle);
     Ok(())
+  }
+
+  fn format(&self) -> AudioFormat {
+    AudioFormat {
+      sample_rate: crate::tick::SAMPLE_RATE_HZ as u32,
+      channels: 1,
+    }
   }
 
   fn pause(&mut self) {
@@ -105,8 +112,8 @@ mod tests {
     capture
       .start(
         "fake-system-audio",
-        Box::new(move |buffer| {
-          received_cb.lock().unwrap().push(buffer);
+        Box::new(move |result| {
+          received_cb.lock().unwrap().push(result.unwrap());
         }),
       )
       .unwrap();
@@ -131,8 +138,8 @@ mod tests {
     capture
       .start(
         "fake-system-audio",
-        Box::new(move |buffer| {
-          received_cb.lock().unwrap().push(buffer);
+        Box::new(move |result| {
+          received_cb.lock().unwrap().push(result.unwrap());
         }),
       )
       .unwrap();
