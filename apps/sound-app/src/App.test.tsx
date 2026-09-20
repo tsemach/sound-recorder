@@ -122,4 +122,29 @@ describe("App", () => {
     expect(window.confirm).toHaveBeenCalled()
     expect(cancelRecording).toHaveBeenCalled()
   })
+
+  it("does not cancel when the confirmation is dismissed", () => {
+    const cancelRecording = vi.fn()
+    vi.spyOn(window, "confirm").mockReturnValue(false)
+    const recording: RecordingState = {
+      state: "Recording",
+      source_name: "Fake",
+      elapsed_ms: 1000,
+    }
+    mockUseRecordingState.mockReturnValue(
+      baseHookReturn({ state: recording, cancelRecording })
+    )
+    render(<App />)
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(window.confirm).toHaveBeenCalled()
+    expect(cancelRecording).not.toHaveBeenCalled()
+  })
+
+  it("does not show the Record button when there are no sources", () => {
+    mockUseRecordingState.mockReturnValue(baseHookReturn({ sources: [] }))
+    render(<App />)
+    expect(
+      screen.queryByRole("button", { name: "Record" })
+    ).not.toBeInTheDocument()
+  })
 })

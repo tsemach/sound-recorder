@@ -1,5 +1,3 @@
-// Becomes reachable once Task 3 wires this module into commands
-#[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
 #[serde(tag = "state")]
 pub enum RecordingState {
@@ -34,8 +32,6 @@ use std::time::Instant;
 use crate::capture::AudioCapture;
 
 impl RecordingState {
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn can_start(&self) -> bool {
     matches!(
       self,
@@ -48,20 +44,14 @@ impl RecordingState {
     )
   }
 
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn can_pause(&self) -> bool {
     matches!(self, RecordingState::Recording { .. })
   }
 
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn can_resume(&self) -> bool {
     matches!(self, RecordingState::Paused { .. })
   }
 
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn can_stop(&self) -> bool {
     matches!(
       self,
@@ -69,8 +59,6 @@ impl RecordingState {
     )
   }
 
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn can_cancel(&self) -> bool {
     matches!(
       self,
@@ -79,8 +67,6 @@ impl RecordingState {
   }
 }
 
-// Becomes reachable once Task 3 wires this module into commands
-#[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandError {
   pub message: String,
@@ -88,8 +74,6 @@ pub struct CommandError {
 }
 
 impl CommandError {
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn new(message: impl Into<String>) -> Self {
     Self {
       message: message.into(),
@@ -98,8 +82,6 @@ impl CommandError {
   }
 }
 
-// Becomes reachable once Task 3 wires this module into commands
-#[allow(dead_code)]
 pub struct SharedState {
   pub state: Mutex<RecordingState>,
   pub capture: Mutex<Box<dyn AudioCapture>>,
@@ -113,8 +95,6 @@ pub struct SharedState {
 }
 
 impl SharedState {
-  // Becomes reachable once Task 3 wires this module into commands
-  #[allow(dead_code)]
   pub fn new(capture: Box<dyn AudioCapture>) -> Self {
     Self {
       state: Mutex::new(RecordingState::Idle),

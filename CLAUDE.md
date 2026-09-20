@@ -25,7 +25,7 @@ This is a pnpm + Turborepo monorepo (`pnpm-workspace.yaml` includes `apps/*` and
 - `packages/eslint-config` (`@workspace/eslint-config`) — shared ESLint flat configs (`base.js`, `next.js`, `react-internal.js`) consumed by each app/package's own `eslint.config.js`.
 - `packages/typescript-config` (`@workspace/typescript-config`) — shared `tsconfig` bases (`base.json`, `nextjs.json`, `react-library.json`).
 
-Turbo pipeline tasks (`turbo.json`) are `build`, `lint`, `format`, `typecheck`, `test`, `dev` — each workspace package defines its own script for these, and `turbo` fans them out respecting `dependsOn: ["^task"]` ordering.
+Turbo pipeline tasks (`turbo.json`) are `build`, `lint`, `format`, `typecheck`, `test`, `test:rust`, `dev` — each workspace package defines its own script for these, and `turbo` fans them out respecting `dependsOn: ["^task"]` ordering.
 
 ## Commands
 
@@ -40,6 +40,7 @@ pnpm lint               # turbo lint
 pnpm format             # turbo format
 pnpm typecheck          # turbo typecheck
 pnpm test               # turbo test
+pnpm test:rust          # turbo test:rust
 
 # scope to a single package, e.g. the sound-app:
 pnpm --filter sound-app dev
@@ -47,6 +48,7 @@ pnpm --filter sound-app build
 pnpm --filter sound-app lint
 pnpm --filter sound-app typecheck
 pnpm --filter sound-app test
+pnpm --filter sound-app test:rust
 ```
 
 Test runner: `sound-app` has Vitest configured; run `pnpm test` to execute tests for packages that define a `test` script.

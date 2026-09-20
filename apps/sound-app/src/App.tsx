@@ -82,7 +82,7 @@ export function App() {
         )}
 
         <div className="flex gap-2">
-          {canStart && (
+          {canStart && sources.length > 0 && (
             <Button onClick={() => void startRecording(selectedSourceId)}>
               Record
             </Button>

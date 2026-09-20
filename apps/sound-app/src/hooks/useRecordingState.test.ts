@@ -70,6 +70,25 @@ describe("useRecordingState", () => {
     })
   })
 
+  it("resyncs elapsedMs from the recording-state-changed payload", async () => {
+    const { result } = renderHook(() => useRecordingState())
+    await waitFor(() =>
+      expect(listeners["recording-state-changed"]).toBeDefined()
+    )
+
+    act(() => {
+      listeners["recording-state-changed"]!({
+        payload: {
+          state: "Recording",
+          source_name: "Fake System Audio",
+          elapsed_ms: 5000,
+        },
+      })
+    })
+
+    expect(result.current.elapsedMs).toBe(5000)
+  })
+
   it("updates elapsedMs and level when a recording-tick event arrives", async () => {
     const { result } = renderHook(() => useRecordingState())
     await waitFor(() => expect(listeners["recording-tick"]).toBeDefined())

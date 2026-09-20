@@ -9,6 +9,12 @@ use crate::tick::{buffer_duration_ms, compute_level};
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
+// Safe only because every command here is a plain sync `fn` (Tauri dispatches
+// these inline on the IPC handler thread, never concurrently) — if any command
+// becomes `async` or offloaded to a thread pool, the guard-check-then-mutate
+// pattern in every command below needs to become a single atomic operation
+// (e.g. a `transition()` helper using `std::mem::replace` under one lock
+// acquisition) before that happens. See PR 3's final review for detail.
 fn emit_state(app: &AppHandle, state: &SharedState, next: RecordingState) {
   *state.state.lock().unwrap() = next.clone();
   let _ = app.emit("recording-state-changed", next);

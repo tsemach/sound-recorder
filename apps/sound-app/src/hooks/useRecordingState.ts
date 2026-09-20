@@ -44,24 +44,37 @@ export function useRecordingState() {
 
     listen<RecordingState>("recording-state-changed", (event) => {
       setState(event.payload)
-    }).then((fn) => {
-      if (cancelled) {
-        fn()
-      } else {
-        unlistenState = fn
+      if (
+        event.payload.state === "Recording" ||
+        event.payload.state === "Paused"
+      ) {
+        setElapsedMs(event.payload.elapsed_ms)
+      }
+      if (event.payload.state !== "Recording") {
+        setLevel(0)
       }
     })
+      .then((fn) => {
+        if (cancelled) {
+          fn()
+        } else {
+          unlistenState = fn
+        }
+      })
+      .catch((err) => setError(errorMessage(err)))
 
     listen<Tick>("recording-tick", (event) => {
       setElapsedMs(event.payload.elapsed_ms)
       setLevel(event.payload.level)
-    }).then((fn) => {
-      if (cancelled) {
-        fn()
-      } else {
-        unlistenTick = fn
-      }
     })
+      .then((fn) => {
+        if (cancelled) {
+          fn()
+        } else {
+          unlistenTick = fn
+        }
+      })
+      .catch((err) => setError(errorMessage(err)))
 
     invoke<AudioSource[]>("list_sources")
       .then(setSources)
