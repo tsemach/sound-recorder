@@ -10,6 +10,7 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "test": "vitest run",
+    "test:rust": "cd src-tauri && cargo test",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri"
   },

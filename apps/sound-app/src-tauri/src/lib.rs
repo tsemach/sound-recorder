@@ -1,7 +1,10 @@
-#[tauri::command]
-fn ping() -> String {
-  "pong".to_string()
-}
+mod capture;
+mod commands;
+mod state;
+mod tick;
+
+use capture::fake::FakeCapture;
+use state::SharedState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -16,17 +19,15 @@ pub fn run() {
       }
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![ping])
+    .manage(SharedState::new(Box::new(FakeCapture::new())))
+    .invoke_handler(tauri::generate_handler![
+      commands::list_sources,
+      commands::start_recording,
+      commands::pause_recording,
+      commands::resume_recording,
+      commands::stop_recording,
+      commands::cancel_recording,
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn ping_returns_pong() {
-    assert_eq!(ping(), "pong");
-  }
 }
