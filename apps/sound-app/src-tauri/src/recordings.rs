@@ -97,7 +97,7 @@ pub fn rename_recording(dir: &Path, old_name: &str, new_name: &str) -> Result<St
   }
   let old_path = dir.join(old_name);
   let new_path = dir.join(new_name);
-  if new_path.exists() {
+  if new_path != old_path && new_path.exists() {
     return Err("A recording with that name already exists".to_string());
   }
   std::fs::rename(&old_path, &new_path).map_err(|e| format!("Could not rename: {e}"))?;
@@ -215,6 +215,19 @@ mod tests {
     assert!(result.is_ok());
     assert!(!dir.join("old.wav").exists());
     assert!(dir.join("new.wav").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+  }
+
+  #[test]
+  fn rename_recording_to_the_same_name_is_a_no_op_not_a_collision() {
+    let dir = std::env::temp_dir().join("pr7_recordings_test_rename_same_name");
+    std::fs::create_dir_all(&dir).unwrap();
+    write_test_wav(&dir.join("same.wav"), &[1, 2]);
+
+    let result = rename_recording(&dir, "same.wav", "same.wav");
+    assert!(result.is_ok());
+    assert!(dir.join("same.wav").exists());
 
     std::fs::remove_dir_all(&dir).ok();
   }
