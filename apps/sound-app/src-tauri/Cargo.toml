@@ -24,6 +24,7 @@ log = "0.4"
 tauri = { version = "2.11.6", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-opener = "2.5.5"
+tauri-plugin-dialog = "2.7.3"
 libpulse-binding = "2"
 libpulse-simple-binding = "2"
 hound = "3.5.1"

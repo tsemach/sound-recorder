@@ -33,6 +33,7 @@ pub fn run() {
       Ok(())
     })
     .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_dialog::init())
     .manage(SharedState::new(Box::new(LinuxPulseCapture::new())))
     .invoke_handler(tauri::generate_handler![
       commands::list_sources,
