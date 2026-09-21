@@ -1,5 +1,6 @@
 mod capture;
 mod commands;
+mod recordings;
 mod recovery;
 mod state;
 mod storage;
