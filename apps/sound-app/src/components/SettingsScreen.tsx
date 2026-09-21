@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
@@ -13,30 +13,22 @@ export type Settings = {
   default_source_id: string | null
 }
 
-export function SettingsScreen() {
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [prefixValue, setPrefixValue] = useState("")
+type SettingsScreenProps = {
+  settings: Settings
+  onSettingsChange: (next: Settings) => void
+}
+
+export function SettingsScreen({
+  settings,
+  onSettingsChange,
+}: SettingsScreenProps) {
+  const [prefixValue, setPrefixValue] = useState(settings.filename_prefix)
   const [error, setError] = useState<string | null>(null)
-
-  async function refresh() {
-    try {
-      const result = await invoke<Settings>("get_settings")
-      setSettings(result)
-      setPrefixValue(result.filename_prefix)
-      setError(null)
-    } catch (err) {
-      setError(errorMessage(err))
-    }
-  }
-
-  useEffect(() => {
-    void refresh()
-  }, [])
 
   async function persist(next: Settings) {
     try {
       await invoke("update_settings", { settings: next })
-      setSettings(next)
+      onSettingsChange(next)
       setError(null)
     } catch (err) {
       setError(errorMessage(err))
@@ -44,7 +36,6 @@ export function SettingsScreen() {
   }
 
   async function handleChooseFolder() {
-    if (!settings) return
     try {
       const result = await open({ directory: true })
       if (typeof result === "string") {
@@ -56,12 +47,7 @@ export function SettingsScreen() {
   }
 
   async function handleSavePrefix() {
-    if (!settings) return
     await persist({ ...settings, filename_prefix: prefixValue })
-  }
-
-  if (!settings) {
-    return <p className="text-sm text-muted-foreground">Loading settings…</p>
   }
 
   return (

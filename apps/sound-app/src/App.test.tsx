@@ -40,7 +40,7 @@ describe("App", () => {
     mockedInvoke.mockReset()
     mockedInvoke.mockResolvedValue({
       save_dir: null,
-      filename_prefix: "",
+      filename_prefix: "recording",
       default_source_id: null,
     })
   })
@@ -212,6 +212,28 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("combobox")).toHaveValue("other-source")
+    })
+  })
+
+  it("falls back to the first source when the persisted default is no longer available", async () => {
+    mockUseRecordingState.mockReturnValue(
+      baseHookReturn({
+        sources: [
+          { id: "fake-system-audio", name: "Fake System Audio" },
+          { id: "other-source", name: "Other Source" },
+        ],
+      })
+    )
+    mockedInvoke.mockResolvedValue({
+      save_dir: null,
+      filename_prefix: "recording",
+      default_source_id: "no-longer-connected",
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox")).toHaveValue("fake-system-audio")
     })
   })
 })

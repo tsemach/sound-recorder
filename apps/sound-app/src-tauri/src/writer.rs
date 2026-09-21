@@ -99,7 +99,7 @@ fn is_writable(path: &Path) -> bool {
 /// settings file was edited or corrupted outside the app). `temp_path` is
 /// the final name with an extra `.tmp` suffix.
 pub fn timestamped_wav_paths(dir: &Path, prefix: &str) -> (PathBuf, PathBuf) {
-  let prefix = if prefix.trim().is_empty() {
+  let prefix = if prefix.trim().is_empty() || prefix.contains('/') || prefix.contains('\\') {
     "recording"
   } else {
     prefix
@@ -323,6 +323,15 @@ mod tests {
   fn timestamped_names_fall_back_to_recording_for_an_empty_prefix() {
     let dir = PathBuf::from("/tmp/whatever");
     let (temp, _) = timestamped_wav_paths(&dir, "   ");
+    assert!(temp
+      .to_string_lossy()
+      .starts_with("/tmp/whatever/recording-"));
+  }
+
+  #[test]
+  fn timestamped_names_fall_back_to_recording_for_a_prefix_with_a_path_separator() {
+    let dir = PathBuf::from("/tmp/whatever");
+    let (temp, _) = timestamped_wav_paths(&dir, "../escape");
     assert!(temp
       .to_string_lossy()
       .starts_with("/tmp/whatever/recording-"));

@@ -26,14 +26,21 @@ export function App() {
 
   const [sourceOverride, setSourceOverride] = useState<string | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
+  const persistedDefaultSourceId =
+    settings?.default_source_id &&
+    sources.some((source) => source.id === settings.default_source_id)
+      ? settings.default_source_id
+      : null
   const selectedSourceId =
-    sourceOverride ?? settings?.default_source_id ?? sources[0]?.id ?? ""
+    sourceOverride ?? persistedDefaultSourceId ?? sources[0]?.id ?? ""
   const [view, setView] = useState<"recorder" | "recordings" | "settings">(
     "recorder"
   )
 
   useEffect(() => {
-    void invoke<Settings>("get_settings").then(setSettings)
+    invoke<Settings>("get_settings")
+      .then(setSettings)
+      .catch(() => {})
   }, [])
 
   function handleSourceChange(sourceId: string) {
@@ -41,7 +48,7 @@ export function App() {
     if (!settings) return
     const next = { ...settings, default_source_id: sourceId }
     setSettings(next)
-    void invoke("update_settings", { settings: next })
+    void invoke("update_settings", { settings: next }).catch(() => {})
   }
 
   const canStart =
@@ -103,7 +110,14 @@ export function App() {
         {view === "recordings" ? (
           <RecordingsList />
         ) : view === "settings" ? (
-          <SettingsScreen />
+          settings ? (
+            <SettingsScreen
+              settings={settings}
+              onSettingsChange={setSettings}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Loading settings…</p>
+          )
         ) : (
           <>
             {error && (

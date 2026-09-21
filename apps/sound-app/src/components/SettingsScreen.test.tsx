@@ -29,39 +29,37 @@ describe("SettingsScreen", () => {
     mockedOpen.mockReset()
   })
 
-  it("renders fetched settings", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
+  it("renders the given settings", () => {
+    render(
+      <SettingsScreen settings={defaultSettings} onSettingsChange={vi.fn()} />
+    )
 
-    render(<SettingsScreen />)
-
-    await waitFor(() => {
-      expect(screen.getByText("Default location")).toBeInTheDocument()
-    })
+    expect(screen.getByText("Default location")).toBeInTheDocument()
     expect(screen.getByLabelText("Filename prefix")).toHaveValue("recording")
   })
 
-  it("shows a custom save directory when one is set", async () => {
-    mockedInvoke.mockResolvedValueOnce({
-      ...defaultSettings,
-      save_dir: "/home/user/MyRecordings",
-    })
+  it("shows a custom save directory when one is set", () => {
+    render(
+      <SettingsScreen
+        settings={{ ...defaultSettings, save_dir: "/home/user/MyRecordings" }}
+        onSettingsChange={vi.fn()}
+      />
+    )
 
-    render(<SettingsScreen />)
-
-    await waitFor(() => {
-      expect(screen.getByText("/home/user/MyRecordings")).toBeInTheDocument()
-    })
+    expect(screen.getByText("/home/user/MyRecordings")).toBeInTheDocument()
   })
 
   it("picks a folder via the native dialog and persists it", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
     mockedOpen.mockResolvedValueOnce("/home/user/Podcasts")
     mockedInvoke.mockResolvedValueOnce(undefined)
+    const onSettingsChange = vi.fn()
 
-    render(<SettingsScreen />)
-    await waitFor(() => {
-      expect(screen.getByText("Default location")).toBeInTheDocument()
-    })
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
 
     fireEvent.click(screen.getByRole("button", { name: "Choose Folder…" }))
 
@@ -73,16 +71,24 @@ describe("SettingsScreen", () => {
         settings: { ...defaultSettings, save_dir: "/home/user/Podcasts" },
       })
     })
+    await waitFor(() => {
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...defaultSettings,
+        save_dir: "/home/user/Podcasts",
+      })
+    })
   })
 
   it("does not persist when the folder dialog is cancelled", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
     mockedOpen.mockResolvedValueOnce(null)
+    const onSettingsChange = vi.fn()
 
-    render(<SettingsScreen />)
-    await waitFor(() => {
-      expect(screen.getByText("Default location")).toBeInTheDocument()
-    })
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
 
     fireEvent.click(screen.getByRole("button", { name: "Choose Folder…" }))
 
@@ -93,16 +99,19 @@ describe("SettingsScreen", () => {
       "update_settings",
       expect.anything()
     )
+    expect(onSettingsChange).not.toHaveBeenCalled()
   })
 
   it("saves an edited filename prefix", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
     mockedInvoke.mockResolvedValueOnce(undefined)
+    const onSettingsChange = vi.fn()
 
-    render(<SettingsScreen />)
-    await waitFor(() => {
-      expect(screen.getByLabelText("Filename prefix")).toHaveValue("recording")
-    })
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
 
     const input = screen.getByLabelText("Filename prefix")
     fireEvent.change(input, { target: { value: "meeting" } })
@@ -113,17 +122,47 @@ describe("SettingsScreen", () => {
         settings: { ...defaultSettings, filename_prefix: "meeting" },
       })
     })
+    await waitFor(() => {
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...defaultSettings,
+        filename_prefix: "meeting",
+      })
+    })
   })
 
-  it("shows the privacy note", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
+  it("shows the privacy note", () => {
+    render(
+      <SettingsScreen settings={defaultSettings} onSettingsChange={vi.fn()} />
+    )
 
-    render(<SettingsScreen />)
+    expect(
+      screen.getByText(/Recordings stay on this device/)
+    ).toBeInTheDocument()
+  })
+
+  it("surfaces an error when persisting fails", async () => {
+    mockedInvoke.mockRejectedValueOnce({
+      message: "Filename prefix cannot be empty",
+      recoverable: true,
+    })
+    const onSettingsChange = vi.fn()
+
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
+
+    const input = screen.getByLabelText("Filename prefix")
+    fireEvent.change(input, { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Recordings stay on this device/)
+        screen.getByText("Filename prefix cannot be empty")
       ).toBeInTheDocument()
     })
+    expect(onSettingsChange).not.toHaveBeenCalled()
   })
 })

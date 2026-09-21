@@ -1,10 +1,21 @@
 use std::path::{Path, PathBuf};
 
-#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(default)]
 pub struct Settings {
   pub save_dir: Option<String>,
   pub filename_prefix: String,
   pub default_source_id: Option<String>,
+}
+
+impl Default for Settings {
+  fn default() -> Self {
+    Self {
+      save_dir: None,
+      filename_prefix: "recording".to_string(),
+      default_source_id: None,
+    }
+  }
 }
 
 fn settings_path(config_dir: &Path) -> PathBuf {
@@ -52,7 +63,7 @@ mod tests {
 
     let settings = load_settings(&dir);
     assert_eq!(settings.save_dir, None);
-    assert_eq!(settings.filename_prefix, "");
+    assert_eq!(settings.filename_prefix, "recording");
     assert_eq!(settings.default_source_id, None);
   }
 
@@ -115,5 +126,16 @@ mod tests {
     };
     let result = save_settings(&dir, &settings);
     assert!(result.is_err());
+  }
+
+  #[test]
+  fn save_settings_succeeds_with_the_default_settings() {
+    let dir = std::env::temp_dir().join("pr8_settings_test_default_save");
+    std::fs::remove_dir_all(&dir).ok();
+
+    let result = save_settings(&dir, &Settings::default());
+    assert!(result.is_ok());
+
+    std::fs::remove_dir_all(&dir).ok();
   }
 }
