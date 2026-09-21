@@ -9,12 +9,25 @@ use crate::tick::{buffer_duration_ms, compute_level};
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
-// Safe only because every command here is a plain sync `fn` (Tauri dispatches
-// these inline on the IPC handler thread, never concurrently) — if any command
-// becomes `async` or offloaded to a thread pool, the guard-check-then-mutate
-// pattern in every command below needs to become a single atomic operation
-// (e.g. a `transition()` helper using `std::mem::replace` under one lock
-// acquisition) before that happens. See PR 3's final review for detail.
+// Safe for command-vs-command races only, because every command here is a
+// plain sync `fn` (Tauri dispatches these inline on the IPC handler thread,
+// never concurrently) — if any command becomes `async` or offloaded to a
+// thread pool, the guard-check-then-mutate pattern in every command below
+// needs to become a single atomic operation (e.g. a `transition()` helper
+// using `std::mem::replace` under one lock acquisition) before that happens.
+// See PR 3's final review for detail.
+//
+// This is NOT safe against the frame callback (below), which writes
+// `RecordingState::Error` from the capture's own background thread — a
+// second, genuinely concurrent writer to `state.state` introduced in PR 4.
+// A command that already passed its `can_*` guard on a stale `Recording`/
+// `Paused` snapshot can still overwrite a just-written `Error` with e.g.
+// `Saved`, silently discarding the failure. Low-probability (needs a
+// mid-stream capture failure to land in a narrow window against a command
+// call) and currently cosmetic, but PR 5 (which will persist `Saved`'s
+// `file_path` for real) needs to close this — either the `transition()`
+// helper above, or restricting the frame callback's error write to when
+// the current state is still `Recording`/`Paused`.
 fn emit_state(app: &AppHandle, state: &SharedState, next: RecordingState) {
   *state.state.lock().unwrap() = next.clone();
   let _ = app.emit("recording-state-changed", next);
