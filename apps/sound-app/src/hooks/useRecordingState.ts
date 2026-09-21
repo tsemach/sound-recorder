@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 
+import { errorMessage } from "../lib/errors"
+
 export type AudioSource = { id: string; name: string }
 
 export type RecordingState =
@@ -19,16 +21,7 @@ export type RecordingState =
     }
   | { state: "Error"; message: string; recoverable: boolean }
 
-type CommandError = { message: string; recoverable: boolean }
-
 type Tick = { elapsed_ms: number; level: number }
-
-function errorMessage(err: unknown): string {
-  if (err && typeof err === "object" && "message" in err) {
-    return String((err as CommandError).message)
-  }
-  return String(err)
-}
 
 export function useRecordingState() {
   const [state, setState] = useState<RecordingState>({ state: "Idle" })
