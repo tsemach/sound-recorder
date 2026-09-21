@@ -65,17 +65,31 @@ pub fn recording_dir(app: &AppHandle) -> Result<PathBuf, String> {
   match loaded.save_dir {
     Some(custom) => {
       let path = PathBuf::from(custom);
-      if path.is_dir()
-        && std::fs::metadata(&path)
-          .map(|m| !m.permissions().readonly())
-          .unwrap_or(false)
-      {
+      if path.is_dir() && is_writable(&path) {
         Ok(path)
       } else {
         default_dir()
       }
     }
     None => default_dir(),
+  }
+}
+
+/// Checks whether this process can actually write to `path`, by writing and
+/// immediately deleting a marker file. Permission-bit checks (e.g. the
+/// readonly flag) can't reliably answer this -- they miss ownership
+/// mismatches, a missing directory-execute bit, and read-only-mounted
+/// filesystems -- so a real write probe is the only cross-platform way to
+/// know for sure. Used by `recording_dir` to decide whether a custom
+/// `save_dir` is still usable before trusting it over the default.
+fn is_writable(path: &Path) -> bool {
+  let probe = path.join(".sound-recorder-write-test");
+  match std::fs::write(&probe, b"") {
+    Ok(()) => {
+      let _ = std::fs::remove_file(&probe);
+      true
+    }
+    Err(_) => false,
   }
 }
 
@@ -269,6 +283,21 @@ mod tests {
       "sent a different count than the configured capacity before Full"
     );
     drop(receiver);
+  }
+
+  #[test]
+  fn is_writable_returns_true_for_a_real_writable_directory() {
+    let dir = std::env::temp_dir().join("pr8_writer_test_writable");
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(is_writable(&dir));
+    std::fs::remove_dir_all(&dir).ok();
+  }
+
+  #[test]
+  fn is_writable_returns_false_for_a_nonexistent_directory() {
+    let dir = std::env::temp_dir().join("pr8_writer_test_not_writable_missing");
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(!is_writable(&dir));
   }
 
   #[test]
