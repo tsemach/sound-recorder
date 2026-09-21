@@ -30,10 +30,19 @@ const sampleRecording = {
   format: "WAV 48 kHz · 2 ch · 16-bit",
 }
 
+const mockedFetch = vi.fn()
+
 describe("RecordingsList", () => {
   beforeEach(() => {
     mockedInvoke.mockReset()
     mockedRevealItemInDir.mockReset()
+    mockedFetch.mockReset()
+    mockedFetch.mockResolvedValue({
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+    })
+    vi.stubGlobal("fetch", mockedFetch)
+    URL.createObjectURL = vi.fn(() => "blob:mock-url")
+    URL.revokeObjectURL = vi.fn()
   })
 
   it("renders a fetched recording with its duration and size", async () => {
@@ -46,6 +55,24 @@ describe("RecordingsList", () => {
     })
     expect(screen.getByText(/01:05/)).toBeInTheDocument()
     expect(screen.getByText(/2\.0 MB/)).toBeInTheDocument()
+  })
+
+  it("plays a recording from a fetched Blob object URL, not the raw asset URL", async () => {
+    mockedInvoke.mockResolvedValueOnce([sampleRecording])
+
+    render(<RecordingsList />)
+
+    await waitFor(() => {
+      expect(mockedFetch).toHaveBeenCalledWith(
+        `asset://localhost/${sampleRecording.path}`
+      )
+    })
+    await waitFor(() => {
+      const audio = screen.getByLabelText(
+        "Play recording-a.wav"
+      ) as HTMLAudioElement
+      expect(audio.src).toBe("blob:mock-url")
+    })
   })
 
   it("shows an empty state when there are no recordings", async () => {

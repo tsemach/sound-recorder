@@ -36,6 +36,7 @@ export function RecordingsList() {
   const [error, setError] = useState<string | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
+  const [audioUrls, setAudioUrls] = useState<Record<string, string>>({})
 
   async function refresh() {
     try {
@@ -50,6 +51,44 @@ export function RecordingsList() {
   useEffect(() => {
     void refresh()
   }, [])
+
+  // WebKitGTK on Linux can't stream playback directly from the asset
+  // protocol (GStreamer doesn't reliably handle its range requests), so
+  // each recording's bytes are fetched into a Blob and played from an
+  // object URL instead -- this works on every platform.
+  useEffect(() => {
+    let cancelled = false
+    const urls: Record<string, string> = {}
+
+    async function loadAll() {
+      await Promise.all(
+        recordings.map(async (recording) => {
+          try {
+            const response = await fetch(convertFileSrc(recording.path))
+            const bytes = await response.arrayBuffer()
+            const blob = new Blob([bytes], { type: "audio/wav" })
+            urls[recording.path] = URL.createObjectURL(blob)
+          } catch {
+            // Leave this recording without a playable URL; its <audio>
+            // element just renders with no source rather than blocking
+            // the rest of the list.
+          }
+        })
+      )
+      if (cancelled) {
+        Object.values(urls).forEach((url) => URL.revokeObjectURL(url))
+        return
+      }
+      setAudioUrls(urls)
+    }
+
+    void loadAll()
+
+    return () => {
+      cancelled = true
+      Object.values(urls).forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [recordings])
 
   function startRename(recording: RecordingMeta) {
     setRenamingPath(recording.path)
@@ -126,7 +165,7 @@ export function RecordingsList() {
 
             <audio
               controls
-              src={convertFileSrc(recording.path)}
+              src={audioUrls[recording.path]}
               aria-label={`Play ${recording.filename}`}
               className="w-full"
             />
