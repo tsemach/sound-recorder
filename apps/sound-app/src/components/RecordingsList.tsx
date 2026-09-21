@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core"
+import { confirm } from "@tauri-apps/plugin-dialog"
 import { revealItemInDir } from "@tauri-apps/plugin-opener"
 
 import { Button } from "@workspace/ui/components/button"
@@ -109,7 +110,7 @@ export function RecordingsList() {
   }
 
   async function handleDelete(recording: RecordingMeta) {
-    if (!window.confirm(`Delete "${recording.filename}"?`)) {
+    if (!(await confirm(`Delete "${recording.filename}"?`))) {
       return
     }
     try {

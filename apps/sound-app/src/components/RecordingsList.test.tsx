@@ -3,6 +3,7 @@ import { fireEvent } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { invoke } from "@tauri-apps/api/core"
+import { confirm } from "@tauri-apps/plugin-dialog"
 import { revealItemInDir } from "@tauri-apps/plugin-opener"
 
 import { RecordingsList } from "./RecordingsList"
@@ -16,10 +17,15 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: vi.fn(),
 }))
 
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  confirm: vi.fn(),
+}))
+
 const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 const mockedRevealItemInDir = revealItemInDir as unknown as ReturnType<
   typeof vi.fn
 >
+const mockedConfirm = confirm as unknown as ReturnType<typeof vi.fn>
 
 const sampleRecording = {
   path: "/home/user/Music/Sound Recorder/recording-a.wav",
@@ -36,6 +42,7 @@ describe("RecordingsList", () => {
   beforeEach(() => {
     mockedInvoke.mockReset()
     mockedRevealItemInDir.mockReset()
+    mockedConfirm.mockReset()
     mockedFetch.mockReset()
     mockedFetch.mockResolvedValue({
       arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
@@ -89,7 +96,7 @@ describe("RecordingsList", () => {
     mockedInvoke.mockResolvedValueOnce([sampleRecording])
     mockedInvoke.mockResolvedValueOnce(undefined)
     mockedInvoke.mockResolvedValueOnce([])
-    vi.spyOn(window, "confirm").mockReturnValue(true)
+    mockedConfirm.mockResolvedValue(true)
 
     render(<RecordingsList />)
     await waitFor(() => {
@@ -112,7 +119,7 @@ describe("RecordingsList", () => {
 
   it("does not call delete_recording when the confirmation is declined", async () => {
     mockedInvoke.mockResolvedValueOnce([sampleRecording])
-    vi.spyOn(window, "confirm").mockReturnValue(false)
+    mockedConfirm.mockResolvedValue(false)
 
     render(<RecordingsList />)
     await waitFor(() => {
