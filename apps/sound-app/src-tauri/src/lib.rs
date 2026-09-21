@@ -1,7 +1,9 @@
 mod capture;
 mod commands;
+mod recovery;
 mod state;
 mod tick;
+mod writer;
 
 use capture::linux_pulse::LinuxPulseCapture;
 use state::SharedState;
@@ -16,6 +18,14 @@ pub fn run() {
             .level(log::LevelFilter::Info)
             .build(),
         )?;
+      }
+      match writer::recording_dir(app.handle()) {
+        Ok(dir) => {
+          if let Err(e) = recovery::recover_orphaned_recordings(&dir) {
+            log::warn!("Could not recover orphaned recordings: {e}");
+          }
+        }
+        Err(e) => log::warn!("Could not resolve save directory for recovery: {e}"),
       }
       Ok(())
     })
