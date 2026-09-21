@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 
 import { invoke } from "@tauri-apps/api/core"
+import { confirm } from "@tauri-apps/plugin-dialog"
 
 import { Button } from "@workspace/ui/components/button"
 
@@ -59,8 +60,8 @@ export function App() {
   const isPaused = state.state === "Paused"
   const isActive = isRecording || isPaused
 
-  function handleCancel() {
-    if (window.confirm("Discard this recording?")) {
+  async function handleCancel() {
+    if (await confirm("Discard this recording?")) {
       void cancelRecording()
     }
   }
@@ -172,7 +173,9 @@ export function App() {
               {isActive && (
                 <Button onClick={() => void stopRecording()}>Stop</Button>
               )}
-              {isActive && <Button onClick={handleCancel}>Cancel</Button>}
+              {isActive && (
+                <Button onClick={() => void handleCancel()}>Cancel</Button>
+              )}
             </div>
           </>
         )}

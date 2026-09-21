@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { invoke } from "@tauri-apps/api/core"
+import { confirm } from "@tauri-apps/plugin-dialog"
 
 import { App } from "./App"
 import { useRecordingState } from "./hooks/useRecordingState"
@@ -13,8 +14,13 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }))
 
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  confirm: vi.fn(),
+}))
+
 const mockUseRecordingState = vi.mocked(useRecordingState)
 const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>
+const mockedConfirm = confirm as unknown as ReturnType<typeof vi.fn>
 
 function baseHookReturn(
   overrides: Partial<ReturnType<typeof useRecordingState>> = {}
@@ -43,6 +49,7 @@ describe("App", () => {
       filename_prefix: "recording",
       default_source_id: null,
     })
+    mockedConfirm.mockReset()
   })
 
   it("toggles dark mode when the d key is pressed", async () => {
@@ -119,9 +126,9 @@ describe("App", () => {
     ).toBeInTheDocument()
   })
 
-  it("confirms before cancelling", () => {
+  it("confirms before cancelling", async () => {
     const cancelRecording = vi.fn()
-    vi.spyOn(window, "confirm").mockReturnValue(true)
+    mockedConfirm.mockResolvedValue(true)
     const recording: RecordingState = {
       state: "Recording",
       source_name: "Fake",
@@ -132,13 +139,17 @@ describe("App", () => {
     )
     render(<App />)
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
-    expect(window.confirm).toHaveBeenCalled()
-    expect(cancelRecording).toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mockedConfirm).toHaveBeenCalledWith("Discard this recording?")
+    })
+    await waitFor(() => {
+      expect(cancelRecording).toHaveBeenCalled()
+    })
   })
 
-  it("does not cancel when the confirmation is dismissed", () => {
+  it("does not cancel when the confirmation is dismissed", async () => {
     const cancelRecording = vi.fn()
-    vi.spyOn(window, "confirm").mockReturnValue(false)
+    mockedConfirm.mockResolvedValue(false)
     const recording: RecordingState = {
       state: "Recording",
       source_name: "Fake",
@@ -149,7 +160,9 @@ describe("App", () => {
     )
     render(<App />)
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
-    expect(window.confirm).toHaveBeenCalled()
+    await waitFor(() => {
+      expect(mockedConfirm).toHaveBeenCalledWith("Discard this recording?")
+    })
     expect(cancelRecording).not.toHaveBeenCalled()
   })
 
