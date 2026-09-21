@@ -17,9 +17,6 @@ pub enum RecordingState {
     duration_ms: u64,
     size_bytes: u64,
   },
-  // Not constructed by any production path yet — PR 3's FakeCapture never fails.
-  // Real capture (PR 4) and the WAV writer (PR 5) are what actually produce this.
-  #[allow(dead_code)]
   Error {
     message: String,
     recoverable: bool,
@@ -29,7 +26,7 @@ pub enum RecordingState {
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::capture::AudioCapture;
+use crate::capture::{AudioCapture, AudioFormat};
 
 impl RecordingState {
   pub fn can_start(&self) -> bool {
@@ -83,25 +80,36 @@ impl CommandError {
 }
 
 pub struct SharedState {
-  pub state: Mutex<RecordingState>,
+  /// `Arc`-wrapped (unlike `capture`) because the frame callback passed to
+  /// `AudioCapture::start` needs its own cheap, 'static-safe clone — it can't
+  /// hold a `tauri::State` guard, which is tied to a single command
+  /// invocation's lifetime. Real capture (PR 4) reports failures from that
+  /// background thread by writing `Error` here directly.
+  pub state: Arc<Mutex<RecordingState>>,
   pub capture: Mutex<Box<dyn AudioCapture>>,
-  /// `Arc`-wrapped (unlike `state`/`capture`) because the frame callback passed to
-  /// `AudioCapture::start` needs its own cheap, 'static-safe clones of just these
-  /// three fields — it can't hold a `tauri::State` guard, which is tied to a single
-  /// command invocation's lifetime.
   pub elapsed_ms: Arc<Mutex<u64>>,
   pub level: Arc<Mutex<f32>>,
   pub last_tick_emit: Arc<Mutex<Instant>>,
+  /// Cached copy of the active capture's format, refreshed once right after
+  /// a successful `start()`. The frame callback (running on the capture's
+  /// own background thread) reads this instead of locking `capture` itself,
+  /// since `stop()` holds that lock while joining that same thread —
+  /// locking it from inside the callback would deadlock.
+  pub format: Arc<Mutex<AudioFormat>>,
 }
 
 impl SharedState {
   pub fn new(capture: Box<dyn AudioCapture>) -> Self {
     Self {
-      state: Mutex::new(RecordingState::Idle),
+      state: Arc::new(Mutex::new(RecordingState::Idle)),
       capture: Mutex::new(capture),
       elapsed_ms: Arc::new(Mutex::new(0)),
       level: Arc::new(Mutex::new(0.0)),
       last_tick_emit: Arc::new(Mutex::new(Instant::now())),
+      format: Arc::new(Mutex::new(AudioFormat {
+        sample_rate: 48_000,
+        channels: 1,
+      })),
     }
   }
 }

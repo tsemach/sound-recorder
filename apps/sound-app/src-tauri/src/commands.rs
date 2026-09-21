@@ -3,18 +3,31 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, State};
 
-use crate::capture::{AudioSource, FrameCallback};
+use crate::capture::{AudioFormat, AudioSource, FrameCallback};
 use crate::state::{CommandError, RecordingState, SharedState};
 use crate::tick::{buffer_duration_ms, compute_level};
 
 const TICK_INTERVAL: Duration = Duration::from_millis(100);
 
-// Safe only because every command here is a plain sync `fn` (Tauri dispatches
-// these inline on the IPC handler thread, never concurrently) — if any command
-// becomes `async` or offloaded to a thread pool, the guard-check-then-mutate
-// pattern in every command below needs to become a single atomic operation
-// (e.g. a `transition()` helper using `std::mem::replace` under one lock
-// acquisition) before that happens. See PR 3's final review for detail.
+// Safe for command-vs-command races only, because every command here is a
+// plain sync `fn` (Tauri dispatches these inline on the IPC handler thread,
+// never concurrently) — if any command becomes `async` or offloaded to a
+// thread pool, the guard-check-then-mutate pattern in every command below
+// needs to become a single atomic operation (e.g. a `transition()` helper
+// using `std::mem::replace` under one lock acquisition) before that happens.
+// See PR 3's final review for detail.
+//
+// This is NOT safe against the frame callback (below), which writes
+// `RecordingState::Error` from the capture's own background thread — a
+// second, genuinely concurrent writer to `state.state` introduced in PR 4.
+// A command that already passed its `can_*` guard on a stale `Recording`/
+// `Paused` snapshot can still overwrite a just-written `Error` with e.g.
+// `Saved`, silently discarding the failure. Low-probability (needs a
+// mid-stream capture failure to land in a narrow window against a command
+// call) and currently cosmetic, but PR 5 (which will persist `Saved`'s
+// `file_path` for real) needs to close this — either the `transition()`
+// helper above, or restricting the frame callback's error write to when
+// the current state is still `Recording`/`Paused`.
 fn emit_state(app: &AppHandle, state: &SharedState, next: RecordingState) {
   *state.state.lock().unwrap() = next.clone();
   let _ = app.emit("recording-state-changed", next);
@@ -92,20 +105,22 @@ fn try_start(
     Arc::clone(&state.elapsed_ms),
     Arc::clone(&state.level),
     Arc::clone(&state.last_tick_emit),
+    Arc::clone(&state.format),
+    Arc::clone(&state.state),
   );
 
-  state
-    .capture
-    .lock()
-    .unwrap()
+  let mut capture = state.capture.lock().unwrap();
+  capture
     .start(source_id, on_frame)
     .map_err(|e| CommandError::new(e.message))?;
+  *state.format.lock().unwrap() = capture.format();
 
   Ok(source_name)
 }
 
-/// Builds the callback passed to `AudioCapture::start`. Each fake (or, later, real) PCM
-/// buffer updates the shared elapsed/level counters and emits a throttled `recording-tick`.
+/// Builds the callback passed to `AudioCapture::start`. Each PCM buffer updates the
+/// shared elapsed/level counters and emits a throttled `recording-tick` — or, if the
+/// capture reports a failure, transitions straight to `RecordingState::Error`.
 /// Takes `Arc` clones rather than a `SharedState`/`State` reference because this closure
 /// must be `'static` (it runs on the capture's background thread), and `tauri::State` is
 /// only valid for the duration of the command invocation that produced it.
@@ -114,27 +129,50 @@ fn make_frame_callback(
   elapsed_ms: Arc<Mutex<u64>>,
   level: Arc<Mutex<f32>>,
   last_tick_emit: Arc<Mutex<Instant>>,
+  format: Arc<Mutex<AudioFormat>>,
+  state: Arc<Mutex<RecordingState>>,
 ) -> FrameCallback {
-  Box::new(move |buffer: Vec<i16>| {
-    let buffer_ms = buffer_duration_ms(buffer.len());
-    let mut elapsed_guard = elapsed_ms.lock().unwrap();
-    *elapsed_guard += buffer_ms;
-    let current_elapsed = *elapsed_guard;
-    drop(elapsed_guard);
+  Box::new(
+    move |result: Result<Vec<i16>, crate::capture::CaptureError>| {
+      let buffer = match result {
+        Ok(buffer) => buffer,
+        Err(e) => {
+          *state.lock().unwrap() = RecordingState::Error {
+            message: e.message.clone(),
+            recoverable: true,
+          };
+          let _ = app.emit(
+            "recording-state-changed",
+            RecordingState::Error {
+              message: e.message,
+              recoverable: true,
+            },
+          );
+          return;
+        }
+      };
 
-    let rms = compute_level(&buffer);
-    *level.lock().unwrap() = rms;
+      let fmt = *format.lock().unwrap();
+      let buffer_ms = buffer_duration_ms(buffer.len(), fmt.sample_rate, fmt.channels);
+      let mut elapsed_guard = elapsed_ms.lock().unwrap();
+      *elapsed_guard += buffer_ms;
+      let current_elapsed = *elapsed_guard;
+      drop(elapsed_guard);
 
-    let mut last = last_tick_emit.lock().unwrap();
-    if last.elapsed() >= TICK_INTERVAL {
-      *last = Instant::now();
-      drop(last);
-      let _ = app.emit(
-        "recording-tick",
-        serde_json::json!({ "elapsed_ms": current_elapsed, "level": rms }),
-      );
-    }
-  })
+      let rms = compute_level(&buffer);
+      *level.lock().unwrap() = rms;
+
+      let mut last = last_tick_emit.lock().unwrap();
+      if last.elapsed() >= TICK_INTERVAL {
+        *last = Instant::now();
+        drop(last);
+        let _ = app.emit(
+          "recording-tick",
+          serde_json::json!({ "elapsed_ms": current_elapsed, "level": rms }),
+        );
+      }
+    },
+  )
 }
 
 #[tauri::command]

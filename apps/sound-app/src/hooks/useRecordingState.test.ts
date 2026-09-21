@@ -70,6 +70,25 @@ describe("useRecordingState", () => {
     })
   })
 
+  it("surfaces the error message when a recording-state-changed Error event arrives", async () => {
+    const { result } = renderHook(() => useRecordingState())
+    await waitFor(() =>
+      expect(listeners["recording-state-changed"]).toBeDefined()
+    )
+
+    act(() => {
+      listeners["recording-state-changed"]!({
+        payload: {
+          state: "Error",
+          message: "Audio capture failed: stream closed",
+          recoverable: true,
+        },
+      })
+    })
+
+    expect(result.current.error).toBe("Audio capture failed: stream closed")
+  })
+
   it("resyncs elapsedMs from the recording-state-changed payload", async () => {
     const { result } = renderHook(() => useRecordingState())
     await waitFor(() =>

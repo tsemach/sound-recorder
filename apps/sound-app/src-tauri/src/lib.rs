@@ -3,7 +3,7 @@ mod commands;
 mod state;
 mod tick;
 
-use capture::fake::FakeCapture;
+use capture::linux_pulse::LinuxPulseCapture;
 use state::SharedState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,7 +19,7 @@ pub fn run() {
       }
       Ok(())
     })
-    .manage(SharedState::new(Box::new(FakeCapture::new())))
+    .manage(SharedState::new(Box::new(LinuxPulseCapture::new())))
     .invoke_handler(tauri::generate_handler![
       commands::list_sources,
       commands::start_recording,

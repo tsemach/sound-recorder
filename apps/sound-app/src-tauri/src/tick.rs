@@ -1,8 +1,12 @@
 pub const SAMPLE_RATE_HZ: u64 = 48_000;
 
-/// Duration in milliseconds represented by `sample_count` mono samples at `SAMPLE_RATE_HZ`.
-pub fn buffer_duration_ms(sample_count: usize) -> u64 {
-  (sample_count as u64 * 1000) / SAMPLE_RATE_HZ
+/// Duration in milliseconds represented by `sample_count` interleaved samples
+/// at the given sample rate and channel count. `sample_count` counts total
+/// i16 values in the buffer (all channels combined), matching what
+/// `AudioCapture` frame callbacks receive.
+pub fn buffer_duration_ms(sample_count: usize, sample_rate: u32, channels: u8) -> u64 {
+  let frames = sample_count as u64 / channels.max(1) as u64;
+  (frames * 1000) / sample_rate.max(1) as u64
 }
 
 /// Root-mean-square level of a PCM buffer, normalized to 0.0..=1.0.
@@ -21,11 +25,23 @@ mod tests {
   use super::*;
 
   #[test]
-  fn buffer_duration_matches_sample_rate() {
-    // 48 samples at 48kHz = 1ms
-    assert_eq!(buffer_duration_ms(48), 1);
-    // 960 samples at 48kHz = 20ms
-    assert_eq!(buffer_duration_ms(960), 20);
+  fn buffer_duration_matches_sample_rate_mono() {
+    // 48 mono samples at 48kHz = 1ms
+    assert_eq!(buffer_duration_ms(48, 48_000, 1), 1);
+    // 960 mono samples at 48kHz = 20ms
+    assert_eq!(buffer_duration_ms(960, 48_000, 1), 20);
+  }
+
+  #[test]
+  fn buffer_duration_accounts_for_channel_count() {
+    // 1920 interleaved samples = 960 stereo frames at 48kHz = 20ms
+    assert_eq!(buffer_duration_ms(1920, 48_000, 2), 20);
+  }
+
+  #[test]
+  fn buffer_duration_accounts_for_sample_rate() {
+    // 441 mono samples at 44.1kHz = 10ms
+    assert_eq!(buffer_duration_ms(441, 44_100, 1), 10);
   }
 
   #[test]

@@ -53,6 +53,12 @@ export function useRecordingState() {
       if (event.payload.state !== "Recording") {
         setLevel(0)
       }
+      if (event.payload.state === "Error") {
+        setError(event.payload.message)
+      }
+      if (event.payload.state === "Recording") {
+        setError(null)
+      }
     })
       .then((fn) => {
         if (cancelled) {
