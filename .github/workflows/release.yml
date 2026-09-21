@@ -1,0 +1,99 @@
+name: "Publish Release"
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      tag_name: ${{ steps.check.outputs.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all tags
+
+      - name: Check version and tags
+        id: check
+        run: |
+          VERSION=$(jq -r '.version' apps/sound-app/src-tauri/tauri.conf.json)
+          TAG_NAME="v$VERSION"
+          echo "Detected version: $VERSION"
+          echo "Expected tag: $TAG_NAME"
+
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists. Skipping release build."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $TAG_NAME does not exist. Triggering release build!"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish-tauri:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    # Linux only: LinuxPulseCapture and its libpulse-binding/libpulse-simple-binding
+    # dependencies are unconditional (no target_os cfg gating) and require
+    # PulseAudio's native library, which only exists on Linux -- a build on
+    # windows-latest/macos-latest would fail to compile, not just produce a
+    # non-functional installer. Revisit once real Windows/macOS capture
+    # backends exist.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./apps/sound-app/src-tauri -> target"
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            libpulse-dev \
+            patchelf \
+            build-essential \
+            file \
+            wget
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build and Release Tauri App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: "./apps/sound-app"
+          tagName: ${{ needs.check-version.outputs.tag_name }}
+          releaseName: "Release ${{ needs.check-version.outputs.tag_name }}"
+          releaseDraft: false
+          prerelease: false
