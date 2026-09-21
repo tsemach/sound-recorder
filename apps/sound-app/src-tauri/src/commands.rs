@@ -155,7 +155,12 @@ fn try_start(
   *state.format.lock().unwrap() = format;
   drop(capture);
 
-  let (temp_path, final_path) = writer::timestamped_wav_paths(&dir);
+  let prefix = app
+    .path()
+    .app_config_dir()
+    .map(|config_dir| settings::load_settings(&config_dir).filename_prefix)
+    .unwrap_or_default();
+  let (temp_path, final_path) = writer::timestamped_wav_paths(&dir, &prefix);
   let join_handle = match writer::spawn_writer(
     writer_receiver,
     temp_path,
