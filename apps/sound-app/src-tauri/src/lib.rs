@@ -19,6 +19,14 @@ pub fn run() {
             .build(),
         )?;
       }
+      match writer::recording_dir(app.handle()) {
+        Ok(dir) => {
+          if let Err(e) = recovery::recover_orphaned_recordings(&dir) {
+            log::warn!("Could not recover orphaned recordings: {e}");
+          }
+        }
+        Err(e) => log::warn!("Could not resolve save directory for recovery: {e}"),
+      }
       Ok(())
     })
     .manage(SharedState::new(Box::new(LinuxPulseCapture::new())))

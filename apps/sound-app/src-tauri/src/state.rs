@@ -96,6 +96,10 @@ pub struct SharedState {
   /// since `stop()` holds that lock while joining that same thread —
   /// locking it from inside the callback would deadlock.
   pub format: Arc<Mutex<AudioFormat>>,
+  /// The active recording's writer thread handle, if any (PR 5). `stop_recording`/
+  /// `cancel_recording` `.take()` this out to send the terminal Finalize/Discard
+  /// message and join the thread.
+  pub writer: Mutex<Option<crate::writer::WriterHandle>>,
 }
 
 impl SharedState {
@@ -110,6 +114,7 @@ impl SharedState {
         sample_rate: 48_000,
         channels: 1,
       })),
+      writer: Mutex::new(None),
     }
   }
 }
