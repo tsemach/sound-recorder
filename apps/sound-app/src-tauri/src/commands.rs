@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::capture::{AudioFormat, AudioSource, FrameCallback};
 use crate::state::{try_transition, CommandError, RecordingState, SharedState};
+use crate::storage;
 use crate::tick::{buffer_duration_ms, compute_level};
 use crate::writer::{self, WriterHandle, WriterMessage};
 
@@ -21,18 +22,16 @@ const TICK_INTERVAL: Duration = Duration::from_millis(100);
 // This is NOT safe against the frame callback or the writer thread, both
 // of which can write `RecordingState::Error` from their own background
 // threads — genuinely concurrent writers to `state.state` introduced in
-// PR 4 (capture) and PR 5 (writer). PR 5's `stop_recording`/
-// `cancel_recording` close this via `state::try_transition` (a guarded
-// check-and-set under one lock acquisition, used instead of this
-// function for those two commands). This function (`emit_state`) is still
-// used unguarded by `start_recording`/`pause_recording`/`resume_recording`
-// — for those three, a command that already passed its `can_*` guard on a
-// stale snapshot can still overwrite a just-written `Error` with e.g.
-// `Recording`. This is low-probability (needs a mid-stream failure to land
-// in a narrow window against one of these three specific calls) but, with
-// a real file on disk, it is no longer purely cosmetic: it can produce a
-// misleading state or an eventual empty/fake `Saved` on a later stop. If
-// this needs closing, extend `try_transition` to these three commands too.
+// PR 4 (capture) and PR 5 (writer). All five commands now guard their
+// final state-write with `state::try_transition` (a check-and-set under
+// one lock acquisition) instead of calling `emit_state` unguarded — PR 5
+// closed this for `stop_recording`/`cancel_recording`, PR 6 (storage
+// checks add more Error-producing paths, widening this race's surface)
+// extended it to `start_recording`/`pause_recording`/`resume_recording`.
+// This function (`emit_state`) now has exactly one remaining unguarded
+// caller: `start_recording`'s very first emit, to `Preparing` — safe
+// because no capture or writer thread exists yet at that point, so no
+// concurrent writer to `state.state` is possible.
 fn emit_state(app: &AppHandle, state: &SharedState, next: RecordingState) {
   *state.state.lock().unwrap() = next.clone();
   let _ = app.emit("recording-state-changed", next);
@@ -63,22 +62,41 @@ pub fn start_recording(
     }
   }
 
+  // Defensively tear down any stale capture/writer from a prior recording
+  // that never got a clean stop/cancel (e.g. a writer/channel error left
+  // the capture thread running with no user-facing way to stop it, since
+  // can_stop()/can_cancel() both exclude Error). This MUST run before the
+  // Preparing emit below -- the emit's "no concurrent writer exists yet"
+  // safety claim is only true once this has actually happened. Moved here
+  // from try_start (where it ran too late) by the final review for this PR.
+  let _ = state.capture.lock().unwrap().stop();
+  state.writer.lock().unwrap().take();
+
+  // Safe unguarded: nothing else can be writing to `state.state` at this
+  // point (the teardown above guarantees no capture or writer thread is
+  // still alive), matching the reasoning `stop_recording`'s comment on
+  // `emit_state` describes for why an unguarded write is fine when no
+  // concurrent writer is possible.
   emit_state(&app, &state, RecordingState::Preparing);
+
+  let still_preparing = |s: &RecordingState| matches!(s, RecordingState::Preparing);
 
   match try_start(&source_id, &state, &app) {
     Ok(source_name) => {
-      emit_state(
-        &app,
-        &state,
-        RecordingState::Recording {
-          source_name,
-          elapsed_ms: 0,
-        },
-      );
+      let next = RecordingState::Recording {
+        source_name,
+        elapsed_ms: 0,
+      };
+      if try_transition(&state.state, still_preparing, next.clone()) {
+        let _ = app.emit("recording-state-changed", next);
+      }
       Ok(())
     }
     Err(e) => {
-      emit_state(&app, &state, RecordingState::Idle);
+      let next = RecordingState::Idle;
+      if try_transition(&state.state, still_preparing, next.clone()) {
+        let _ = app.emit("recording-state-changed", next);
+      }
       Err(e)
     }
   }
@@ -89,14 +107,15 @@ fn try_start(
   state: &SharedState,
   app: &AppHandle,
 ) -> Result<String, CommandError> {
-  // Defensively tear down any stale capture/writer from a prior recording
-  // that never got a clean stop/cancel (e.g. a writer error left the
-  // capture thread running with no user-facing way to stop it). Without
-  // this, a second start_recording would leave two live capture threads
-  // sharing the same running/paused flags (doubling the elapsed-time rate)
-  // and silently orphan the old writer handle.
-  let _ = state.capture.lock().unwrap().stop();
-  state.writer.lock().unwrap().take();
+  let dir = writer::recording_dir(app).map_err(CommandError::new)?;
+  let free = storage::free_space_bytes(&dir)
+    .map_err(|e| CommandError::new(format!("Could not check available disk space: {e}")))?;
+  if storage::is_below_threshold(free) {
+    return Err(CommandError::new(format!(
+      "Not enough free disk space to start recording (need at least {}MB free)",
+      storage::MIN_FREE_BYTES / 1024 / 1024
+    )));
+  }
 
   let sources = state
     .capture
@@ -134,13 +153,6 @@ fn try_start(
   *state.format.lock().unwrap() = format;
   drop(capture);
 
-  let dir = match writer::recording_dir(app) {
-    Ok(dir) => dir,
-    Err(e) => {
-      let _ = state.capture.lock().unwrap().stop();
-      return Err(CommandError::new(e));
-    }
-  };
   let (temp_path, final_path) = writer::timestamped_wav_paths(&dir);
   let join_handle = match writer::spawn_writer(
     writer_receiver,
@@ -179,7 +191,7 @@ fn make_frame_callback(
   last_tick_emit: Arc<Mutex<Instant>>,
   format: Arc<Mutex<AudioFormat>>,
   state: Arc<Mutex<RecordingState>>,
-  writer_sender: std::sync::mpsc::Sender<WriterMessage>,
+  writer_sender: std::sync::mpsc::SyncSender<WriterMessage>,
 ) -> FrameCallback {
   Box::new(
     move |result: Result<Vec<i16>, crate::capture::CaptureError>| {
@@ -221,7 +233,36 @@ fn make_frame_callback(
         );
       }
 
-      let _ = writer_sender.send(WriterMessage::Frame(buffer));
+      match writer_sender.try_send(WriterMessage::Frame(buffer)) {
+        Ok(()) => {}
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+          // The writer can't keep up. Drop this one frame rather than block
+          // the capture thread (a blocking send here would reintroduce the
+          // exact capture/disk coupling PR 4's review eliminated) -- but
+          // treat a full channel as a real failure signal, same as a
+          // disk-space or write error. Guarded (not an unconditional write)
+          // so repeated Full results on later frames don't keep re-writing
+          // and re-emitting once the state has already moved to Error --
+          // unlike the capture-error path (the thread dies) or the writer's
+          // own `failed` latch, nothing else stops this one from firing on
+          // every single frame while the channel stays full.
+          let message = "Recording failed: the audio writer fell behind".to_string();
+          if try_report_writer_stall(&state, message.clone()) {
+            let _ = app.emit(
+              "recording-state-changed",
+              RecordingState::Error {
+                message,
+                recoverable: true,
+              },
+            );
+          }
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+          // Writer thread already exited (e.g. its own error path) --
+          // nothing to do, the state was already set by whatever caused
+          // that exit.
+        }
+      }
     },
   )
 }
@@ -241,14 +282,13 @@ pub fn pause_recording(state: State<SharedState>, app: AppHandle) -> Result<(), 
 
   state.capture.lock().unwrap().pause();
   let elapsed_ms = *state.elapsed_ms.lock().unwrap();
-  emit_state(
-    &app,
-    &state,
-    RecordingState::Paused {
-      source_name,
-      elapsed_ms,
-    },
-  );
+  let next = RecordingState::Paused {
+    source_name,
+    elapsed_ms,
+  };
+  if try_transition(&state.state, RecordingState::can_pause, next.clone()) {
+    let _ = app.emit("recording-state-changed", next);
+  }
   Ok(())
 }
 
@@ -267,14 +307,13 @@ pub fn resume_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
 
   state.capture.lock().unwrap().resume();
   let elapsed_ms = *state.elapsed_ms.lock().unwrap();
-  emit_state(
-    &app,
-    &state,
-    RecordingState::Recording {
-      source_name,
-      elapsed_ms,
-    },
-  );
+  let next = RecordingState::Recording {
+    source_name,
+    elapsed_ms,
+  };
+  if try_transition(&state.state, RecordingState::can_resume, next.clone()) {
+    let _ = app.emit("recording-state-changed", next);
+  }
   Ok(())
 }
 
@@ -288,6 +327,22 @@ pub fn resume_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
 /// a unit test doesn't have.
 fn try_begin_saving(state: &Arc<Mutex<RecordingState>>) -> bool {
   try_transition(state, RecordingState::can_stop, RecordingState::Saving)
+}
+
+/// The guarded transition the frame callback's `try_send`-`Full` arm
+/// performs. Extracted for the same reason `try_begin_saving` is: directly
+/// unit-testable without a real `AppHandle`, and it latches the write (once
+/// state has moved to `Error`, `can_stop` is false, so repeated `Full`
+/// results on later frames stop re-writing/re-emitting).
+fn try_report_writer_stall(state: &Arc<Mutex<RecordingState>>, message: String) -> bool {
+  try_transition(
+    state,
+    RecordingState::can_stop,
+    RecordingState::Error {
+      message,
+      recoverable: true,
+    },
+  )
 }
 
 #[tauri::command]
@@ -321,9 +376,14 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
   }
   let _ = app.emit("recording-state-changed", next);
 
+  let still_saving = |s: &RecordingState| matches!(s, RecordingState::Saving);
+
   match capture_result {
     Ok(()) => {
       let result = writer_handle.and_then(|handle| {
+        // `send` can now block briefly if up to 250 queued frames haven't
+        // drained yet (the channel is bounded as of this PR) -- subsumed by
+        // the existing "Saving has no escape hatch" gap, not a new one.
         let _ = handle.sender.send(WriterMessage::Finalize);
         handle.join_handle.join().ok().flatten()
       });
@@ -334,8 +394,14 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
             duration_ms: r.duration_ms,
             size_bytes: r.size_bytes,
           };
-          *state.state.lock().unwrap() = next.clone();
-          let _ = app.emit("recording-state-changed", next);
+          // Guarded: a concurrent writer/disk-space error could have
+          // already moved the state past Saving (e.g. the in-flight
+          // storage check firing between try_begin_saving succeeding and
+          // this point) -- don't overwrite a more specific Error with a
+          // possibly-stale Saved.
+          if try_transition(&state.state, still_saving, next.clone()) {
+            let _ = app.emit("recording-state-changed", next);
+          }
           Ok(())
         }
         Some(_) => {
@@ -349,8 +415,9 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
             message: message.clone(),
             recoverable: true,
           };
-          *state.state.lock().unwrap() = next.clone();
-          let _ = app.emit("recording-state-changed", next);
+          if try_transition(&state.state, still_saving, next.clone()) {
+            let _ = app.emit("recording-state-changed", next);
+          }
           Err(CommandError::new(message))
         }
         None => {
@@ -359,8 +426,9 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
             message: message.clone(),
             recoverable: true,
           };
-          *state.state.lock().unwrap() = next.clone();
-          let _ = app.emit("recording-state-changed", next);
+          if try_transition(&state.state, still_saving, next.clone()) {
+            let _ = app.emit("recording-state-changed", next);
+          }
           Err(CommandError::new(message))
         }
       }
@@ -374,8 +442,9 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
         message: e.message.clone(),
         recoverable: true,
       };
-      *state.state.lock().unwrap() = next.clone();
-      let _ = app.emit("recording-state-changed", next);
+      if try_transition(&state.state, still_saving, next.clone()) {
+        let _ = app.emit("recording-state-changed", next);
+      }
       Err(CommandError::new(e.message))
     }
   }
@@ -396,6 +465,9 @@ pub fn cancel_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
   let writer_handle = state.writer.lock().unwrap().take();
 
   if let Some(handle) = writer_handle {
+    // `send` can now block briefly if up to 250 queued frames haven't
+    // drained yet (the channel is bounded as of this PR) -- subsumed by
+    // the existing "Saving has no escape hatch" gap, not a new one.
     let _ = handle.sender.send(WriterMessage::Discard);
     let _ = handle.join_handle.join();
   }
@@ -456,6 +528,71 @@ mod tests {
         recoverable: true,
       },
       "state must still be the concurrently-written Error, not Saving"
+    );
+  }
+
+  #[test]
+  fn still_preparing_guard_does_not_clobber_a_concurrent_error() {
+    let state = SharedState::new(Box::new(FakeCapture::new()));
+    *state.state.lock().unwrap() = RecordingState::Preparing;
+
+    // Simulate a stale capture/writer thread writing Error concurrently,
+    // during the window between the Preparing emit and try_start returning
+    // -- exactly the scenario Fix 2 closes by moving teardown earlier.
+    *state.state.lock().unwrap() = RecordingState::Error {
+      message: "simulated".into(),
+      recoverable: true,
+    };
+
+    let still_preparing = |s: &RecordingState| matches!(s, RecordingState::Preparing);
+    let transitioned = try_transition(
+      &state.state,
+      still_preparing,
+      RecordingState::Recording {
+        source_name: "test".into(),
+        elapsed_ms: 0,
+      },
+    );
+
+    assert!(
+      !transitioned,
+      "the guarded transition must back off, not clobber the race"
+    );
+    assert_eq!(
+      *state.state.lock().unwrap(),
+      RecordingState::Error {
+        message: "simulated".into(),
+        recoverable: true,
+      },
+      "state must still be the concurrently-written Error, not Recording"
+    );
+  }
+
+  #[test]
+  fn try_report_writer_stall_transitions_once_then_latches() {
+    let state = SharedState::new(Box::new(FakeCapture::new()));
+    *state.state.lock().unwrap() = RecordingState::Recording {
+      source_name: "test".into(),
+      elapsed_ms: 0,
+    };
+
+    let first = try_report_writer_stall(&state.state, "writer fell behind".into());
+    assert!(first, "first call should transition Recording -> Error");
+    assert_eq!(
+      *state.state.lock().unwrap(),
+      RecordingState::Error {
+        message: "writer fell behind".into(),
+        recoverable: true,
+      }
+    );
+
+    // A second call (simulating a repeated Full result on a later frame)
+    // must NOT transition again -- can_stop() is false for Error, so this
+    // is the latch that stops the spam Fix 1 was written to close.
+    let second = try_report_writer_stall(&state.state, "writer fell behind".into());
+    assert!(
+      !second,
+      "once already Error, repeated calls must not re-transition (the latch)"
     );
   }
 }

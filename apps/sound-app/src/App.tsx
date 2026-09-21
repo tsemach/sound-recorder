@@ -81,6 +81,10 @@ export function App() {
           </div>
         )}
 
+        {state.state === "Saving" && (
+          <div className="text-sm text-muted-foreground">Saving…</div>
+        )}
+
         <div className="flex gap-2">
           {canStart && sources.length > 0 && (
             <Button onClick={() => void startRecording(selectedSourceId)}>

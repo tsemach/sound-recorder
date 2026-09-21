@@ -1,12 +1,23 @@
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
 use crate::capture::AudioFormat;
 use crate::state::RecordingState;
+use crate::storage;
+
+/// How many `WriterMessage`s the channel between the capture thread's frame
+/// callback and the writer thread can hold before `try_send` starts
+/// returning `Full`. 250 frames at ~20ms each is roughly 5 seconds of
+/// buffered audio -- enough slack for a brief disk hiccup without letting
+/// memory grow unboundedly if the writer falls behind for good.
+const CHANNEL_CAPACITY: usize = 250;
+
+const STORAGE_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 pub enum WriterMessage {
   Frame(Vec<i16>),
@@ -26,7 +37,7 @@ pub struct WriterError {
 }
 
 pub struct WriterHandle {
-  pub sender: Sender<WriterMessage>,
+  pub sender: SyncSender<WriterMessage>,
   pub join_handle: thread::JoinHandle<Option<WriterResult>>,
 }
 
@@ -58,8 +69,8 @@ pub fn timestamped_wav_paths(dir: &Path) -> (PathBuf, PathBuf) {
 /// callback to the writer thread. Split out from `spawn_writer` because the
 /// `Sender` is needed by `make_frame_callback` before the real `AudioFormat`
 /// (needed to create the `hound::WavWriter`) is known.
-pub fn create_channel() -> (Sender<WriterMessage>, Receiver<WriterMessage>) {
-  mpsc::channel()
+pub fn create_channel() -> (SyncSender<WriterMessage>, Receiver<WriterMessage>) {
+  mpsc::sync_channel(CHANNEL_CAPACITY)
 }
 
 /// Creates the temp WAV file and spawns the thread that owns it. Synchronous
@@ -89,6 +100,24 @@ pub fn spawn_writer(
   }))
 }
 
+/// Sets `RecordingState::Error` and emits it, mirroring the pattern every
+/// failure path in this loop already uses. Shared by the write-failure and
+/// low-disk-space paths so both report failures identically.
+fn fail_recording(app: &AppHandle, state: &Arc<Mutex<RecordingState>>, message: String) {
+  *state.lock().unwrap() = RecordingState::Error {
+    message: message.clone(),
+    recoverable: true,
+  };
+  let _ = tauri::Emitter::emit(
+    app,
+    "recording-state-changed",
+    RecordingState::Error {
+      message,
+      recoverable: true,
+    },
+  );
+}
+
 fn run_writer_loop(
   mut writer: hound::WavWriter<std::io::BufWriter<std::fs::File>>,
   receiver: Receiver<WriterMessage>,
@@ -99,6 +128,7 @@ fn run_writer_loop(
   state: Arc<Mutex<RecordingState>>,
 ) -> Option<WriterResult> {
   let mut failed = false;
+  let mut last_storage_check = Instant::now();
 
   loop {
     match receiver.recv() {
@@ -106,6 +136,23 @@ fn run_writer_loop(
         if failed {
           continue;
         }
+
+        if last_storage_check.elapsed() >= STORAGE_CHECK_INTERVAL {
+          last_storage_check = Instant::now();
+          let dir = temp_path.parent().unwrap_or(&temp_path);
+          if let Ok(free) = storage::free_space_bytes(dir) {
+            if storage::is_below_threshold(free) {
+              failed = true;
+              fail_recording(
+                &app,
+                &state,
+                "Recording failed: disk space is critically low".to_string(),
+              );
+              continue;
+            }
+          }
+        }
+
         let mut write_err: Option<hound::Error> = None;
         for sample in samples {
           if let Err(e) = writer.write_sample(sample) {
@@ -118,19 +165,7 @@ fn run_writer_loop(
         }
         if let Some(e) = write_err {
           failed = true;
-          let message = format!("Could not write audio to disk: {e}");
-          *state.lock().unwrap() = RecordingState::Error {
-            message: message.clone(),
-            recoverable: true,
-          };
-          let _ = tauri::Emitter::emit(
-            &app,
-            "recording-state-changed",
-            RecordingState::Error {
-              message,
-              recoverable: true,
-            },
-          );
+          fail_recording(&app, &state, format!("Could not write audio to disk: {e}"));
         }
       }
       Ok(WriterMessage::Finalize) => {
@@ -179,6 +214,29 @@ fn run_writer_loop(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn sync_channel_returns_full_when_capacity_exceeded() {
+    let (sender, receiver) = create_channel();
+    let mut sent = 0;
+    loop {
+      match sender.try_send(WriterMessage::Frame(vec![1, 2])) {
+        Ok(()) => sent += 1,
+        Err(mpsc::TrySendError::Full(_)) => break,
+        Err(e) => panic!("unexpected error: {e:?}"),
+      }
+      if sent > 10_000 {
+        panic!("channel never reported Full -- capacity assumption is wrong");
+      }
+    }
+    println!("channel reported Full after {sent} successful sends");
+    assert!(sent > 0, "expected at least some capacity before Full");
+    assert_eq!(
+      sent, CHANNEL_CAPACITY,
+      "sent a different count than the configured capacity before Full"
+    );
+    drop(receiver);
+  }
 
   #[test]
   fn timestamped_names_have_the_expected_shape() {

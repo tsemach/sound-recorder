@@ -258,4 +258,45 @@ mod tests {
       }
     );
   }
+
+  #[test]
+  fn try_transition_succeeds_with_can_pause() {
+    let state = Arc::new(Mutex::new(RecordingState::Recording {
+      source_name: "x".into(),
+      elapsed_ms: 0,
+    }));
+    let ok = try_transition(
+      &state,
+      RecordingState::can_pause,
+      RecordingState::Paused {
+        source_name: "x".into(),
+        elapsed_ms: 0,
+      },
+    );
+    assert!(ok);
+  }
+
+  #[test]
+  fn try_transition_succeeds_with_can_resume() {
+    let state = Arc::new(Mutex::new(RecordingState::Paused {
+      source_name: "x".into(),
+      elapsed_ms: 0,
+    }));
+    let ok = try_transition(
+      &state,
+      RecordingState::can_resume,
+      RecordingState::Recording {
+        source_name: "x".into(),
+        elapsed_ms: 0,
+      },
+    );
+    assert!(ok);
+  }
+
+  #[test]
+  fn try_transition_succeeds_with_can_start() {
+    let state = Arc::new(Mutex::new(RecordingState::Idle));
+    let ok = try_transition(&state, RecordingState::can_start, RecordingState::Preparing);
+    assert!(ok);
+  }
 }

@@ -147,4 +147,18 @@ describe("App", () => {
       screen.queryByRole("button", { name: "Record" })
     ).not.toBeInTheDocument()
   })
+
+  it("shows a Saving indicator while state is Saving", () => {
+    mockUseRecordingState.mockReturnValue(
+      baseHookReturn({ state: { state: "Saving" } })
+    )
+    render(<App />)
+    expect(screen.getByText("Saving…")).toBeInTheDocument()
+  })
+
+  it("does not show the Saving indicator outside the Saving state", () => {
+    mockUseRecordingState.mockReturnValue(baseHookReturn())
+    render(<App />)
+    expect(screen.queryByText("Saving…")).not.toBeInTheDocument()
+  })
 })
