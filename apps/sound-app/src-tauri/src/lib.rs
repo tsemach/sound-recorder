@@ -1,5 +1,6 @@
 mod capture;
 mod commands;
+mod recovery;
 mod state;
 mod tick;
 mod writer;
