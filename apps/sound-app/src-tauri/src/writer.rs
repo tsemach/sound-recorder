@@ -146,7 +146,7 @@ fn run_writer_loop(
               fail_recording(
                 &app,
                 &state,
-                "Recording stopped: disk space is critically low".to_string(),
+                "Recording failed: disk space is critically low".to_string(),
               );
               continue;
             }
@@ -231,9 +231,9 @@ mod tests {
     }
     println!("channel reported Full after {sent} successful sends");
     assert!(sent > 0, "expected at least some capacity before Full");
-    assert!(
-      sent <= CHANNEL_CAPACITY,
-      "sent more than the configured capacity before Full"
+    assert_eq!(
+      sent, CHANNEL_CAPACITY,
+      "sent a different count than the configured capacity before Full"
     );
     drop(receiver);
   }
