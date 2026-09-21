@@ -1,8 +1,11 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
+
+import { invoke } from "@tauri-apps/api/core"
 
 import { Button } from "@workspace/ui/components/button"
 
 import { RecordingsList } from "./components/RecordingsList"
+import { SettingsScreen, type Settings } from "./components/SettingsScreen"
 import { ThemeProvider } from "./components/theme-provider"
 import { useRecordingState } from "./hooks/useRecordingState"
 import { formatDuration } from "./lib/format"
@@ -22,8 +25,24 @@ export function App() {
   } = useRecordingState()
 
   const [sourceOverride, setSourceOverride] = useState<string | null>(null)
-  const selectedSourceId = sourceOverride ?? sources[0]?.id ?? ""
-  const [view, setView] = useState<"recorder" | "recordings">("recorder")
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const selectedSourceId =
+    sourceOverride ?? settings?.default_source_id ?? sources[0]?.id ?? ""
+  const [view, setView] = useState<"recorder" | "recordings" | "settings">(
+    "recorder"
+  )
+
+  useEffect(() => {
+    void invoke<Settings>("get_settings").then(setSettings)
+  }, [])
+
+  function handleSourceChange(sourceId: string) {
+    setSourceOverride(sourceId)
+    if (!settings) return
+    const next = { ...settings, default_source_id: sourceId }
+    setSettings(next)
+    void invoke("update_settings", { settings: next })
+  }
 
   const canStart =
     state.state === "Idle" ||
@@ -51,20 +70,40 @@ export function App() {
                 Recording &middot; {formatDuration(elapsedMs)}
               </span>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setView(view === "recorder" ? "recordings" : "recorder")
-              }
-            >
-              {view === "recorder" ? "Recordings" : "Back to Recorder"}
-            </Button>
+            {view !== "recorder" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setView("recorder")}
+              >
+                Back to Recorder
+              </Button>
+            )}
+            {view !== "recordings" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setView("recordings")}
+              >
+                Recordings
+              </Button>
+            )}
+            {view !== "settings" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setView("settings")}
+              >
+                Settings
+              </Button>
+            )}
           </div>
         </div>
 
         {view === "recordings" ? (
           <RecordingsList />
+        ) : view === "settings" ? (
+          <SettingsScreen />
         ) : (
           <>
             {error && (
@@ -77,7 +116,7 @@ export function App() {
               <select
                 className="w-fit rounded border p-2 text-sm"
                 value={selectedSourceId}
-                onChange={(e) => setSourceOverride(e.target.value)}
+                onChange={(e) => handleSourceChange(e.target.value)}
               >
                 {sources.map((source) => (
                   <option key={source.id} value={source.id}>

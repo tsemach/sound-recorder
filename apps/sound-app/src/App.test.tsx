@@ -1,13 +1,20 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { invoke } from "@tauri-apps/api/core"
+
 import { App } from "./App"
 import { useRecordingState } from "./hooks/useRecordingState"
 import type { RecordingState } from "./hooks/useRecordingState"
 
 vi.mock("./hooks/useRecordingState")
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}))
+
 const mockUseRecordingState = vi.mocked(useRecordingState)
+const mockedInvoke = invoke as unknown as ReturnType<typeof vi.fn>
 
 function baseHookReturn(
   overrides: Partial<ReturnType<typeof useRecordingState>> = {}
@@ -30,6 +37,12 @@ function baseHookReturn(
 describe("App", () => {
   beforeEach(() => {
     mockUseRecordingState.mockReset()
+    mockedInvoke.mockReset()
+    mockedInvoke.mockResolvedValue({
+      save_dir: null,
+      filename_prefix: "",
+      default_source_id: null,
+    })
   })
 
   it("toggles dark mode when the d key is pressed", async () => {
@@ -160,5 +173,45 @@ describe("App", () => {
     mockUseRecordingState.mockReturnValue(baseHookReturn())
     render(<App />)
     expect(screen.queryByText("Saving…")).not.toBeInTheDocument()
+  })
+
+  it("navigates to Settings and back to the recorder", async () => {
+    mockUseRecordingState.mockReturnValue(baseHookReturn())
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }))
+    await waitFor(() => {
+      expect(screen.getByText("Save location")).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByRole("button", { name: "Record" })
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Recorder" }))
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record" })).toBeInTheDocument()
+    })
+  })
+
+  it("pre-selects the persisted default source once settings load", async () => {
+    mockUseRecordingState.mockReturnValue(
+      baseHookReturn({
+        sources: [
+          { id: "fake-system-audio", name: "Fake System Audio" },
+          { id: "other-source", name: "Other Source" },
+        ],
+      })
+    )
+    mockedInvoke.mockResolvedValue({
+      save_dir: null,
+      filename_prefix: "",
+      default_source_id: "other-source",
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox")).toHaveValue("other-source")
+    })
   })
 })
