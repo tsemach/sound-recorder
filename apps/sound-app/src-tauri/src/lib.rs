@@ -2,6 +2,7 @@ mod capture;
 mod commands;
 mod recordings;
 mod recovery;
+mod settings;
 mod state;
 mod storage;
 mod tick;
