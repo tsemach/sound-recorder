@@ -689,39 +689,37 @@ describe("SettingsScreen", () => {
     mockedOpen.mockReset()
   })
 
-  it("renders fetched settings", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
+  it("renders the given settings", () => {
+    render(
+      <SettingsScreen settings={defaultSettings} onSettingsChange={vi.fn()} />
+    )
 
-    render(<SettingsScreen />)
-
-    await waitFor(() => {
-      expect(screen.getByText("Default location")).toBeInTheDocument()
-    })
+    expect(screen.getByText("Default location")).toBeInTheDocument()
     expect(screen.getByLabelText("Filename prefix")).toHaveValue("recording")
   })
 
-  it("shows a custom save directory when one is set", async () => {
-    mockedInvoke.mockResolvedValueOnce({
-      ...defaultSettings,
-      save_dir: "/home/user/MyRecordings",
-    })
+  it("shows a custom save directory when one is set", () => {
+    render(
+      <SettingsScreen
+        settings={{ ...defaultSettings, save_dir: "/home/user/MyRecordings" }}
+        onSettingsChange={vi.fn()}
+      />
+    )
 
-    render(<SettingsScreen />)
-
-    await waitFor(() => {
-      expect(screen.getByText("/home/user/MyRecordings")).toBeInTheDocument()
-    })
+    expect(screen.getByText("/home/user/MyRecordings")).toBeInTheDocument()
   })
 
   it("picks a folder via the native dialog and persists it", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
     mockedOpen.mockResolvedValueOnce("/home/user/Podcasts")
     mockedInvoke.mockResolvedValueOnce(undefined)
+    const onSettingsChange = vi.fn()
 
-    render(<SettingsScreen />)
-    await waitFor(() => {
-      expect(screen.getByText("Default location")).toBeInTheDocument()
-    })
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
 
     fireEvent.click(screen.getByRole("button", { name: "Choose Folder…" }))
 
@@ -733,16 +731,24 @@ describe("SettingsScreen", () => {
         settings: { ...defaultSettings, save_dir: "/home/user/Podcasts" },
       })
     })
+    await waitFor(() => {
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...defaultSettings,
+        save_dir: "/home/user/Podcasts",
+      })
+    })
   })
 
   it("does not persist when the folder dialog is cancelled", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
     mockedOpen.mockResolvedValueOnce(null)
+    const onSettingsChange = vi.fn()
 
-    render(<SettingsScreen />)
-    await waitFor(() => {
-      expect(screen.getByText("Default location")).toBeInTheDocument()
-    })
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
 
     fireEvent.click(screen.getByRole("button", { name: "Choose Folder…" }))
 
@@ -753,16 +759,19 @@ describe("SettingsScreen", () => {
       "update_settings",
       expect.anything()
     )
+    expect(onSettingsChange).not.toHaveBeenCalled()
   })
 
   it("saves an edited filename prefix", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
     mockedInvoke.mockResolvedValueOnce(undefined)
+    const onSettingsChange = vi.fn()
 
-    render(<SettingsScreen />)
-    await waitFor(() => {
-      expect(screen.getByLabelText("Filename prefix")).toHaveValue("recording")
-    })
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
 
     const input = screen.getByLabelText("Filename prefix")
     fireEvent.change(input, { target: { value: "meeting" } })
@@ -773,18 +782,48 @@ describe("SettingsScreen", () => {
         settings: { ...defaultSettings, filename_prefix: "meeting" },
       })
     })
+    await waitFor(() => {
+      expect(onSettingsChange).toHaveBeenCalledWith({
+        ...defaultSettings,
+        filename_prefix: "meeting",
+      })
+    })
   })
 
-  it("shows the privacy note", async () => {
-    mockedInvoke.mockResolvedValueOnce(defaultSettings)
+  it("shows the privacy note", () => {
+    render(
+      <SettingsScreen settings={defaultSettings} onSettingsChange={vi.fn()} />
+    )
 
-    render(<SettingsScreen />)
+    expect(
+      screen.getByText(/Recordings stay on this device/)
+    ).toBeInTheDocument()
+  })
+
+  it("surfaces an error when persisting fails", async () => {
+    mockedInvoke.mockRejectedValueOnce({
+      message: "Filename prefix cannot be empty",
+      recoverable: true,
+    })
+    const onSettingsChange = vi.fn()
+
+    render(
+      <SettingsScreen
+        settings={defaultSettings}
+        onSettingsChange={onSettingsChange}
+      />
+    )
+
+    const input = screen.getByLabelText("Filename prefix")
+    fireEvent.change(input, { target: { value: "" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Recordings stay on this device/)
+        screen.getByText("Filename prefix cannot be empty")
       ).toBeInTheDocument()
     })
+    expect(onSettingsChange).not.toHaveBeenCalled()
   })
 })
 ```
@@ -799,7 +838,7 @@ Expected: FAIL — `./SettingsScreen` does not exist yet.
 Create `apps/sound-app/src/components/SettingsScreen.tsx`:
 
 ```tsx
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
@@ -814,30 +853,22 @@ export type Settings = {
   default_source_id: string | null
 }
 
-export function SettingsScreen() {
-  const [settings, setSettings] = useState<Settings | null>(null)
-  const [prefixValue, setPrefixValue] = useState("")
+type SettingsScreenProps = {
+  settings: Settings
+  onSettingsChange: (next: Settings) => void
+}
+
+export function SettingsScreen({
+  settings,
+  onSettingsChange,
+}: SettingsScreenProps) {
+  const [prefixValue, setPrefixValue] = useState(settings.filename_prefix)
   const [error, setError] = useState<string | null>(null)
-
-  async function refresh() {
-    try {
-      const result = await invoke<Settings>("get_settings")
-      setSettings(result)
-      setPrefixValue(result.filename_prefix)
-      setError(null)
-    } catch (err) {
-      setError(errorMessage(err))
-    }
-  }
-
-  useEffect(() => {
-    void refresh()
-  }, [])
 
   async function persist(next: Settings) {
     try {
       await invoke("update_settings", { settings: next })
-      setSettings(next)
+      onSettingsChange(next)
       setError(null)
     } catch (err) {
       setError(errorMessage(err))
@@ -845,7 +876,6 @@ export function SettingsScreen() {
   }
 
   async function handleChooseFolder() {
-    if (!settings) return
     try {
       const result = await open({ directory: true })
       if (typeof result === "string") {
@@ -857,12 +887,7 @@ export function SettingsScreen() {
   }
 
   async function handleSavePrefix() {
-    if (!settings) return
     await persist({ ...settings, filename_prefix: prefixValue })
-  }
-
-  if (!settings) {
-    return <p className="text-sm text-muted-foreground">Loading settings…</p>
   }
 
   return (
@@ -916,17 +941,17 @@ export function SettingsScreen() {
 }
 ```
 
-Note: `refresh` is declared *before* the `useEffect` that calls it — this
-ordering matters. `eslint-plugin-react-hooks` 7.1.1's
-`react-hooks/immutability` rule flags a function referenced before its
-own declaration (even though JS function-declaration hoisting makes it
-work at runtime), so declaring `refresh` first avoids a real, extra lint
-warning beyond the one documented below.
+Note: `SettingsScreen` takes `settings`/`onSettingsChange` as props rather
+than fetching its own copy — it does not own a `useEffect`/mount-fetch at
+all. `App.tsx` (Task 6) owns the single `get_settings` fetch and only
+renders `SettingsScreen` once that settings state is loaded, which is
+what keeps this component and `App`'s copy of settings from drifting out
+of sync with each other.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `pnpm --filter sound-app test SettingsScreen`
-Expected: PASS, 6 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 5: Typecheck and lint**
 
@@ -934,11 +959,10 @@ Run: `pnpm --filter sound-app typecheck`
 Expected: PASS, no errors.
 
 Run: `pnpm --filter sound-app lint`
-Expected: exits 0. One expected warning on `SettingsScreen.tsx`'s
-`useEffect(() => { void refresh() }, [])` line
-(`react-hooks/set-state-in-effect`) — the same known, non-blocking
-fetch-on-mount pattern already documented for `RecordingsList.tsx` in
-PR7. Do not attempt to suppress or restructure it.
+Expected: exits 0, no warnings on `SettingsScreen.tsx` — it has no
+mount-effect to flag. (`RecordingsList.tsx`'s known, non-blocking
+fetch-on-mount `react-hooks/set-state-in-effect` warning from PR7 is
+unrelated and still present.)
 
 - [ ] **Step 6: Commit**
 
@@ -993,14 +1017,21 @@ with:
 ```tsx
   const [sourceOverride, setSourceOverride] = useState<string | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
+  const persistedDefaultSourceId =
+    settings?.default_source_id &&
+    sources.some((source) => source.id === settings.default_source_id)
+      ? settings.default_source_id
+      : null
   const selectedSourceId =
-    sourceOverride ?? settings?.default_source_id ?? sources[0]?.id ?? ""
+    sourceOverride ?? persistedDefaultSourceId ?? sources[0]?.id ?? ""
   const [view, setView] = useState<"recorder" | "recordings" | "settings">(
     "recorder"
   )
 
   useEffect(() => {
-    void invoke<Settings>("get_settings").then(setSettings)
+    invoke<Settings>("get_settings")
+      .then(setSettings)
+      .catch(() => {})
   }, [])
 
   function handleSourceChange(sourceId: string) {
@@ -1008,7 +1039,7 @@ with:
     if (!settings) return
     const next = { ...settings, default_source_id: sourceId }
     setSettings(next)
-    void invoke("update_settings", { settings: next })
+    void invoke("update_settings", { settings: next }).catch(() => {})
   }
 ```
 
@@ -1023,6 +1054,16 @@ built `{ save_dir: null, filename_prefix: "", default_source_id: sourceId
 directory and filename prefix every time they changed the source. This
 was caught and fixed during this plan's own validation; do not
 reintroduce that bug.
+
+**Also important:** `selectedSourceId`'s fallback chain checks that
+`settings.default_source_id` is still present in the live `sources` list
+(`persistedDefaultSourceId`) before trusting it — a persisted default
+source that's no longer connected (e.g. a USB mic unplugged since last
+run) must fall through to `sources[0]?.id`, not select a value that isn't
+actually in the `<select>`'s options. Both `invoke` calls also swallow
+their rejection (`.catch(() => {})`) — `get_settings`/`update_settings`
+failing must never surface as an unhandled promise rejection or block the
+rest of the UI from working.
 
 - [ ] **Step 3: Replace the header toggle button and view-switch logic**
 
@@ -1096,9 +1137,26 @@ with:
         {view === "recordings" ? (
           <RecordingsList />
         ) : view === "settings" ? (
-          <SettingsScreen />
+          settings ? (
+            <SettingsScreen
+              settings={settings}
+              onSettingsChange={setSettings}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Loading settings…
+            </p>
+          )
         ) : (
 ```
+
+`SettingsScreen` only renders once `settings` has loaded (props are
+required, not optional) — while it's still `null`, a short "Loading
+settings…" message renders instead. This is also what keeps `App`'s copy
+of settings and `SettingsScreen`'s displayed values from ever going
+stale relative to each other: `SettingsScreen` no longer fetches its own
+copy (Task 5's fix), so `App`'s `settings` state, updated via
+`onSettingsChange`, is the single source of truth passed down as props.
 
 - [ ] **Step 4: Wire the source `<select>` to `handleSourceChange`**
 
@@ -1182,15 +1240,21 @@ to:
     mockedInvoke.mockReset()
     mockedInvoke.mockResolvedValue({
       save_dir: null,
-      filename_prefix: "",
+      filename_prefix: "recording",
       default_source_id: null,
     })
   })
 ```
 
-- [ ] **Step 6: Add two new tests**
+(`filename_prefix: "recording"` matches the real backend default now
+that `Settings::default()` produces a valid, non-empty prefix — see Task
+1's `settings.rs`, corrected after this plan's own validation found the
+original derived `Default` gave `""`, which `save_settings` then
+rejected on the very first write.)
 
-Add these two tests at the end of the `describe("App", ...)` block, right
+- [ ] **Step 6: Add three new tests**
+
+Add these three tests at the end of the `describe("App", ...)` block, right
 before its closing `})`:
 
 ```tsx
@@ -1223,7 +1287,7 @@ before its closing `})`:
     )
     mockedInvoke.mockResolvedValue({
       save_dir: null,
-      filename_prefix: "",
+      filename_prefix: "recording",
       default_source_id: "other-source",
     })
 
@@ -1233,12 +1297,34 @@ before its closing `})`:
       expect(screen.getByRole("combobox")).toHaveValue("other-source")
     })
   })
+
+  it("falls back to the first source when the persisted default is no longer available", async () => {
+    mockUseRecordingState.mockReturnValue(
+      baseHookReturn({
+        sources: [
+          { id: "fake-system-audio", name: "Fake System Audio" },
+          { id: "other-source", name: "Other Source" },
+        ],
+      })
+    )
+    mockedInvoke.mockResolvedValue({
+      save_dir: null,
+      filename_prefix: "recording",
+      default_source_id: "no-longer-connected",
+    })
+
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox")).toHaveValue("fake-system-audio")
+    })
+  })
 ```
 
 - [ ] **Step 7: Run the full frontend suite**
 
 Run: `pnpm --filter sound-app test`
-Expected: PASS, all tests including the 2 new ones, no unhandled
+Expected: PASS, all tests including the 3 new ones, no unhandled
 rejections.
 
 - [ ] **Step 8: Typecheck and lint**
@@ -1247,9 +1333,11 @@ Run: `pnpm --filter sound-app typecheck`
 Expected: PASS.
 
 Run: `pnpm --filter sound-app lint`
-Expected: exits 0 (the two documented `set-state-in-effect` warnings from
-`RecordingsList.tsx`/`SettingsScreen.tsx` persist; `App.tsx`/
-`App.test.tsx` themselves introduce no new warnings).
+Expected: exits 0 with exactly one warning, `RecordingsList.tsx`'s
+documented fetch-on-mount `react-hooks/set-state-in-effect` warning from
+PR7. `SettingsScreen.tsx` no longer has a mount-effect (Task 5's fix), so
+it no longer contributes a second warning; `App.tsx`/`App.test.tsx`
+themselves introduce no new warnings.
 
 - [ ] **Step 9: Commit**
 
@@ -1269,7 +1357,7 @@ cargo clippy --all-targets --manifest-path apps/sound-app/src-tauri/Cargo.toml
 cargo fmt --check --manifest-path apps/sound-app/src-tauri/Cargo.toml
 pnpm --filter sound-app test
 pnpm --filter sound-app typecheck
-pnpm --filter sound-app lint          # exits 0; two expected fetch-on-mount warnings
+pnpm --filter sound-app lint          # exits 0; one expected fetch-on-mount warning (RecordingsList.tsx)
 pnpm --filter sound-app tauri dev     # manual: pick a save folder, record, confirm it lands there;
                                        # change the filename prefix, confirm the next recording uses it;
                                        # change the default source, reload, confirm it's pre-selected;
