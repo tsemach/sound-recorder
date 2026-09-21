@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 use crate::capture::AudioFormat;
+use crate::settings;
 use crate::state::RecordingState;
 use crate::storage;
 
@@ -41,25 +42,71 @@ pub struct WriterHandle {
   pub join_handle: thread::JoinHandle<Option<WriterResult>>,
 }
 
-/// Resolves (and creates, if missing) the default save directory:
-/// `<OS audio dir>/Sound Recorder/`. No settings screen exists yet (PR 8) to
-/// make this configurable.
+/// Resolves (and creates, if missing) the save directory. If a settings
+/// file has a `save_dir` set and that directory exists and is writable, it
+/// wins; otherwise (unset, or set but no longer valid -- e.g. an external
+/// drive got unplugged) this falls back to the default:
+/// `<OS audio dir>/Sound Recorder/`.
 pub fn recording_dir(app: &AppHandle) -> Result<PathBuf, String> {
-  let audio_dir = app
-    .path()
-    .audio_dir()
-    .map_err(|e| format!("Could not resolve audio directory: {e}"))?;
-  let dir = audio_dir.join("Sound Recorder");
-  std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create save directory: {e}"))?;
-  Ok(dir)
+  let default_dir = || -> Result<PathBuf, String> {
+    let audio_dir = app
+      .path()
+      .audio_dir()
+      .map_err(|e| format!("Could not resolve audio directory: {e}"))?;
+    let dir = audio_dir.join("Sound Recorder");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create save directory: {e}"))?;
+    Ok(dir)
+  };
+
+  let Ok(config_dir) = app.path().app_config_dir() else {
+    return default_dir();
+  };
+  let loaded = settings::load_settings(&config_dir);
+  match loaded.save_dir {
+    Some(custom) => {
+      let path = PathBuf::from(custom);
+      if path.is_dir() && is_writable(&path) {
+        Ok(path)
+      } else {
+        default_dir()
+      }
+    }
+    None => default_dir(),
+  }
 }
 
-/// Builds `(temp_path, final_path)` for a new recording started now.
-/// `temp_path` is the final name with an extra `.tmp` suffix.
-pub fn timestamped_wav_paths(dir: &Path) -> (PathBuf, PathBuf) {
+/// Checks whether this process can actually write to `path`, by writing and
+/// immediately deleting a marker file. Permission-bit checks (e.g. the
+/// readonly flag) can't reliably answer this -- they miss ownership
+/// mismatches, a missing directory-execute bit, and read-only-mounted
+/// filesystems -- so a real write probe is the only cross-platform way to
+/// know for sure. Used by `recording_dir` to decide whether a custom
+/// `save_dir` is still usable before trusting it over the default.
+fn is_writable(path: &Path) -> bool {
+  let probe = path.join(".sound-recorder-write-test");
+  match std::fs::write(&probe, b"") {
+    Ok(()) => {
+      let _ = std::fs::remove_file(&probe);
+      true
+    }
+    Err(_) => false,
+  }
+}
+
+/// Builds `(temp_path, final_path)` for a new recording started now, named
+/// with `prefix` (falling back to `"recording"` if empty -- a second line
+/// of defense beyond `settings::save_settings`'s own validation, in case a
+/// settings file was edited or corrupted outside the app). `temp_path` is
+/// the final name with an extra `.tmp` suffix.
+pub fn timestamped_wav_paths(dir: &Path, prefix: &str) -> (PathBuf, PathBuf) {
+  let prefix = if prefix.trim().is_empty() || prefix.contains('/') || prefix.contains('\\') {
+    "recording"
+  } else {
+    prefix
+  };
   let now = std::time::SystemTime::now();
   let datetime: chrono::DateTime<chrono::Local> = now.into();
-  let name = format!("recording-{}.wav", datetime.format("%Y-%m-%d_%H-%M-%S%.3f"));
+  let name = format!("{prefix}-{}.wav", datetime.format("%Y-%m-%d_%H-%M-%S%.3f"));
   let final_path = dir.join(&name);
   let temp_path = dir.join(format!("{name}.tmp"));
   (temp_path, final_path)
@@ -239,15 +286,55 @@ mod tests {
   }
 
   #[test]
+  fn is_writable_returns_true_for_a_real_writable_directory() {
+    let dir = std::env::temp_dir().join("pr8_writer_test_writable");
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(is_writable(&dir));
+    std::fs::remove_dir_all(&dir).ok();
+  }
+
+  #[test]
+  fn is_writable_returns_false_for_a_nonexistent_directory() {
+    let dir = std::env::temp_dir().join("pr8_writer_test_not_writable_missing");
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(!is_writable(&dir));
+  }
+
+  #[test]
   fn timestamped_names_have_the_expected_shape() {
     let dir = PathBuf::from("/tmp/whatever");
-    let (temp, final_) = timestamped_wav_paths(&dir);
+    let (temp, final_) = timestamped_wav_paths(&dir, "recording");
     assert!(temp
       .to_string_lossy()
       .starts_with("/tmp/whatever/recording-"));
     assert!(temp.to_string_lossy().ends_with(".wav.tmp"));
     assert!(final_.to_string_lossy().ends_with(".wav"));
     assert!(!final_.to_string_lossy().ends_with(".wav.tmp"));
+  }
+
+  #[test]
+  fn timestamped_names_use_the_given_prefix() {
+    let dir = PathBuf::from("/tmp/whatever");
+    let (temp, _) = timestamped_wav_paths(&dir, "meeting");
+    assert!(temp.to_string_lossy().starts_with("/tmp/whatever/meeting-"));
+  }
+
+  #[test]
+  fn timestamped_names_fall_back_to_recording_for_an_empty_prefix() {
+    let dir = PathBuf::from("/tmp/whatever");
+    let (temp, _) = timestamped_wav_paths(&dir, "   ");
+    assert!(temp
+      .to_string_lossy()
+      .starts_with("/tmp/whatever/recording-"));
+  }
+
+  #[test]
+  fn timestamped_names_fall_back_to_recording_for_a_prefix_with_a_path_separator() {
+    let dir = PathBuf::from("/tmp/whatever");
+    let (temp, _) = timestamped_wav_paths(&dir, "../escape");
+    assert!(temp
+      .to_string_lossy()
+      .starts_with("/tmp/whatever/recording-"));
   }
 
   #[test]

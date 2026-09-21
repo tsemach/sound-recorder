@@ -1,10 +1,11 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::capture::{AudioFormat, AudioSource, FrameCallback};
 use crate::recordings::{self, RecordingMeta};
+use crate::settings;
 use crate::state::{try_transition, CommandError, RecordingState, SharedState};
 use crate::storage;
 use crate::tick::{buffer_duration_ms, compute_level};
@@ -154,7 +155,12 @@ fn try_start(
   *state.format.lock().unwrap() = format;
   drop(capture);
 
-  let (temp_path, final_path) = writer::timestamped_wav_paths(&dir);
+  let prefix = app
+    .path()
+    .app_config_dir()
+    .map(|config_dir| settings::load_settings(&config_dir).filename_prefix)
+    .unwrap_or_default();
+  let (temp_path, final_path) = writer::timestamped_wav_paths(&dir, &prefix);
   let join_handle = match writer::spawn_writer(
     writer_receiver,
     temp_path,
@@ -502,6 +508,24 @@ pub fn rename_recording(
 pub fn delete_recording(app: AppHandle, name: String) -> Result<(), CommandError> {
   let dir = writer::recording_dir(&app).map_err(CommandError::new)?;
   recordings::delete_recording(&dir, &name).map_err(CommandError::new)
+}
+
+#[tauri::command]
+pub fn get_settings(app: AppHandle) -> settings::Settings {
+  let config_dir = match app.path().app_config_dir() {
+    Ok(dir) => dir,
+    Err(_) => return settings::Settings::default(),
+  };
+  settings::load_settings(&config_dir)
+}
+
+#[tauri::command]
+pub fn update_settings(app: AppHandle, settings: settings::Settings) -> Result<(), CommandError> {
+  let config_dir = app
+    .path()
+    .app_config_dir()
+    .map_err(|e| CommandError::new(format!("Could not resolve settings directory: {e}")))?;
+  settings::save_settings(&config_dir, &settings).map_err(CommandError::new)
 }
 
 #[cfg(test)]

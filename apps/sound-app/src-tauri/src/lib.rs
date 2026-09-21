@@ -2,6 +2,7 @@ mod capture;
 mod commands;
 mod recordings;
 mod recovery;
+mod settings;
 mod state;
 mod storage;
 mod tick;
@@ -32,6 +33,7 @@ pub fn run() {
       Ok(())
     })
     .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_dialog::init())
     .manage(SharedState::new(Box::new(LinuxPulseCapture::new())))
     .invoke_handler(tauri::generate_handler![
       commands::list_sources,
@@ -43,6 +45,8 @@ pub fn run() {
       commands::list_recordings,
       commands::rename_recording,
       commands::delete_recording,
+      commands::get_settings,
+      commands::update_settings,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
