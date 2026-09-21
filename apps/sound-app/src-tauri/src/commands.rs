@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::capture::{AudioFormat, AudioSource, FrameCallback};
+use crate::recordings::{self, RecordingMeta};
 use crate::state::{try_transition, CommandError, RecordingState, SharedState};
 use crate::storage;
 use crate::tick::{buffer_duration_ms, compute_level};
@@ -479,6 +480,28 @@ pub fn cancel_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
     let _ = app.emit("recording-state-changed", next);
   }
   Ok(())
+}
+
+#[tauri::command]
+pub fn list_recordings(app: AppHandle) -> Result<Vec<RecordingMeta>, CommandError> {
+  let dir = writer::recording_dir(&app).map_err(CommandError::new)?;
+  recordings::list_recordings(&dir).map_err(|e| CommandError::new(e.to_string()))
+}
+
+#[tauri::command]
+pub fn rename_recording(
+  app: AppHandle,
+  old_name: String,
+  new_name: String,
+) -> Result<String, CommandError> {
+  let dir = writer::recording_dir(&app).map_err(CommandError::new)?;
+  recordings::rename_recording(&dir, &old_name, &new_name).map_err(CommandError::new)
+}
+
+#[tauri::command]
+pub fn delete_recording(app: AppHandle, name: String) -> Result<(), CommandError> {
+  let dir = writer::recording_dir(&app).map_err(CommandError::new)?;
+  recordings::delete_recording(&dir, &name).map_err(CommandError::new)
 }
 
 #[cfg(test)]
