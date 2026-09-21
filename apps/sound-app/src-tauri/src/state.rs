@@ -114,6 +114,24 @@ impl SharedState {
   }
 }
 
+/// Atomically checks and mutates `state` under one lock acquisition, closing
+/// the gap where a command could otherwise overwrite a state a concurrent
+/// background thread (capture or writer) already moved away from. Returns
+/// whether the transition happened.
+pub fn try_transition(
+  state: &Arc<Mutex<RecordingState>>,
+  allowed: impl Fn(&RecordingState) -> bool,
+  next: RecordingState,
+) -> bool {
+  let mut guard = state.lock().unwrap();
+  if allowed(&guard) {
+    *guard = next;
+    true
+  } else {
+    false
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -192,5 +210,42 @@ mod tests {
       assert!(!s.can_stop());
       assert!(!s.can_cancel());
     }
+  }
+
+  #[test]
+  fn try_transition_succeeds_when_allowed() {
+    let state = Arc::new(Mutex::new(RecordingState::Recording {
+      source_name: "x".into(),
+      elapsed_ms: 0,
+    }));
+
+    let ok = try_transition(&state, RecordingState::can_stop, RecordingState::Saving);
+    assert!(ok);
+    assert_eq!(*state.lock().unwrap(), RecordingState::Saving);
+  }
+
+  #[test]
+  fn try_transition_backs_off_when_state_already_changed() {
+    let state = Arc::new(Mutex::new(RecordingState::Recording {
+      source_name: "x".into(),
+      elapsed_ms: 0,
+    }));
+
+    // Simulate a concurrent capture/writer-thread error landing first.
+    *state.lock().unwrap() = RecordingState::Error {
+      message: "capture failed".into(),
+      recoverable: true,
+    };
+
+    // A stale stop_recording's guarded transition must NOT clobber this.
+    let ok = try_transition(&state, RecordingState::can_stop, RecordingState::Saving);
+    assert!(!ok);
+    assert_eq!(
+      *state.lock().unwrap(),
+      RecordingState::Error {
+        message: "capture failed".into(),
+        recoverable: true
+      }
+    );
   }
 }

@@ -1,0 +1,312 @@
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+use tauri::{AppHandle, Manager};
+
+use crate::capture::AudioFormat;
+use crate::state::RecordingState;
+
+pub enum WriterMessage {
+  Frame(Vec<i16>),
+  Finalize,
+  Discard,
+}
+
+#[derive(Debug)]
+pub struct WriterResult {
+  pub file_path: String,
+  pub duration_ms: u64,
+  pub size_bytes: u64,
+}
+
+pub struct WriterError {
+  pub message: String,
+}
+
+pub struct WriterHandle {
+  pub sender: Sender<WriterMessage>,
+  pub join_handle: thread::JoinHandle<Option<WriterResult>>,
+}
+
+/// Resolves (and creates, if missing) the default save directory:
+/// `<OS audio dir>/Sound Recorder/`. No settings screen exists yet (PR 8) to
+/// make this configurable.
+pub fn recording_dir(app: &AppHandle) -> Result<PathBuf, String> {
+  let audio_dir = app
+    .path()
+    .audio_dir()
+    .map_err(|e| format!("Could not resolve audio directory: {e}"))?;
+  let dir = audio_dir.join("Sound Recorder");
+  std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create save directory: {e}"))?;
+  Ok(dir)
+}
+
+/// Builds `(temp_path, final_path)` for a new recording started now.
+/// `temp_path` is the final name with an extra `.tmp` suffix.
+pub fn timestamped_wav_paths(dir: &Path) -> (PathBuf, PathBuf) {
+  let now = std::time::SystemTime::now();
+  let datetime: chrono::DateTime<chrono::Local> = now.into();
+  let name = format!("recording-{}.wav", datetime.format("%Y-%m-%d_%H-%M-%S"));
+  let final_path = dir.join(&name);
+  let temp_path = dir.join(format!("{name}.tmp"));
+  (temp_path, final_path)
+}
+
+/// Creates the channel used to hand frames from the capture thread's frame
+/// callback to the writer thread. Split out from `spawn_writer` because the
+/// `Sender` is needed by `make_frame_callback` before the real `AudioFormat`
+/// (needed to create the `hound::WavWriter`) is known.
+pub fn create_channel() -> (Sender<WriterMessage>, Receiver<WriterMessage>) {
+  mpsc::channel()
+}
+
+/// Creates the temp WAV file and spawns the thread that owns it. Synchronous
+/// (the `hound::WavWriter::create` call, and thus any permission/path
+/// error, happens here before any thread is spawned) — matches the pattern
+/// `LinuxPulseCapture::start` already uses for its own synchronous setup.
+pub fn spawn_writer(
+  receiver: Receiver<WriterMessage>,
+  temp_path: PathBuf,
+  final_path: PathBuf,
+  format: AudioFormat,
+  app: AppHandle,
+  state: Arc<Mutex<RecordingState>>,
+) -> Result<thread::JoinHandle<Option<WriterResult>>, WriterError> {
+  let spec = hound::WavSpec {
+    channels: format.channels as u16,
+    sample_rate: format.sample_rate,
+    bits_per_sample: 16,
+    sample_format: hound::SampleFormat::Int,
+  };
+  let writer = hound::WavWriter::create(&temp_path, spec).map_err(|e| WriterError {
+    message: format!("Could not create recording file: {e}"),
+  })?;
+
+  Ok(thread::spawn(move || {
+    run_writer_loop(writer, receiver, format, temp_path, final_path, app, state)
+  }))
+}
+
+fn run_writer_loop(
+  mut writer: hound::WavWriter<std::io::BufWriter<std::fs::File>>,
+  receiver: Receiver<WriterMessage>,
+  format: AudioFormat,
+  temp_path: PathBuf,
+  final_path: PathBuf,
+  app: AppHandle,
+  state: Arc<Mutex<RecordingState>>,
+) -> Option<WriterResult> {
+  let mut failed = false;
+
+  loop {
+    match receiver.recv() {
+      Ok(WriterMessage::Frame(samples)) => {
+        if failed {
+          continue;
+        }
+        let mut write_err: Option<hound::Error> = None;
+        for sample in samples {
+          if let Err(e) = writer.write_sample(sample) {
+            write_err = Some(e);
+            break;
+          }
+        }
+        if write_err.is_none() {
+          write_err = writer.flush().err();
+        }
+        if let Some(e) = write_err {
+          failed = true;
+          let message = format!("Could not write audio to disk: {e}");
+          *state.lock().unwrap() = RecordingState::Error {
+            message: message.clone(),
+            recoverable: true,
+          };
+          let _ = tauri::Emitter::emit(
+            &app,
+            "recording-state-changed",
+            RecordingState::Error {
+              message,
+              recoverable: true,
+            },
+          );
+        }
+      }
+      Ok(WriterMessage::Finalize) => {
+        if failed {
+          let _ = std::fs::remove_file(&temp_path);
+          return None;
+        }
+        let duration_samples = writer.duration();
+        let duration_ms = (duration_samples as u64 * 1000) / format.sample_rate.max(1) as u64;
+        if writer.finalize().is_err() {
+          return None;
+        }
+        let size_bytes = std::fs::metadata(&temp_path).map(|m| m.len()).unwrap_or(0);
+        if std::fs::rename(&temp_path, &final_path).is_err() {
+          return None;
+        }
+        return Some(WriterResult {
+          file_path: final_path.to_string_lossy().to_string(),
+          duration_ms,
+          size_bytes,
+        });
+      }
+      Ok(WriterMessage::Discard) => {
+        drop(writer);
+        let _ = std::fs::remove_file(&temp_path);
+        return None;
+      }
+      Err(_) => {
+        // Channel closed with no terminal message: the frame callback's
+        // Sender was dropped after the capture thread exited due to an
+        // error, with nobody sending Finalize/Discard. Drop the writer
+        // (its periodic flush() calls mean the temp file is already valid
+        // up to the last frame) and leave it for recovery::
+        // recover_orphaned_recordings to promote or delete at next startup.
+        return None;
+      }
+    }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn timestamped_names_have_the_expected_shape() {
+    let dir = PathBuf::from("/tmp/whatever");
+    let (temp, final_) = timestamped_wav_paths(&dir);
+    assert!(temp
+      .to_string_lossy()
+      .starts_with("/tmp/whatever/recording-"));
+    assert!(temp.to_string_lossy().ends_with(".wav.tmp"));
+    assert!(final_.to_string_lossy().ends_with(".wav"));
+    assert!(!final_.to_string_lossy().ends_with(".wav.tmp"));
+  }
+
+  #[test]
+  fn finalize_produces_a_real_playable_wav_file_with_correct_metadata() {
+    let dir = std::env::temp_dir().join("pr5_writer_test_finalize");
+    std::fs::create_dir_all(&dir).unwrap();
+    let temp_path = dir.join("rec.wav.tmp");
+    let final_path = dir.join("rec.wav");
+    let _ = std::fs::remove_file(&temp_path);
+    let _ = std::fs::remove_file(&final_path);
+
+    let format = AudioFormat {
+      sample_rate: 48_000,
+      channels: 2,
+    };
+    let spec = hound::WavSpec {
+      channels: format.channels as u16,
+      sample_rate: format.sample_rate,
+      bits_per_sample: 16,
+      sample_format: hound::SampleFormat::Int,
+    };
+    let writer = hound::WavWriter::create(&temp_path, spec).unwrap();
+    let (sender, receiver) = mpsc::channel::<WriterMessage>();
+
+    // run_writer_loop needs a real AppHandle, which a plain unit test can't
+    // construct. Its `app`/`state` parameters are only touched on the
+    // write-error path, which this happy-path test never exercises -- so we
+    // call the same finalize logic directly here rather than through
+    // run_writer_loop, to keep this test AppHandle-free. The exact
+    // write/flush/finalize/rename sequence matches run_writer_loop's
+    // Finalize arm above verbatim. `temp_path`/`final_path` are cloned
+    // before the move so the outer test can still assert on them afterward.
+    let thread_temp_path = temp_path.clone();
+    let thread_final_path = final_path.clone();
+    let handle = thread::spawn(move || {
+      let mut writer = writer;
+      loop {
+        match receiver.recv().unwrap() {
+          WriterMessage::Frame(samples) => {
+            for s in samples {
+              writer.write_sample(s).unwrap();
+            }
+            writer.flush().unwrap();
+          }
+          WriterMessage::Finalize => {
+            let duration_samples = writer.duration();
+            let duration_ms = (duration_samples as u64 * 1000) / format.sample_rate.max(1) as u64;
+            writer.finalize().unwrap();
+            let size_bytes = std::fs::metadata(&thread_temp_path).unwrap().len();
+            std::fs::rename(&thread_temp_path, &thread_final_path).unwrap();
+            return Some(WriterResult {
+              file_path: thread_final_path.to_string_lossy().to_string(),
+              duration_ms,
+              size_bytes,
+            });
+          }
+          WriterMessage::Discard => return None,
+        }
+      }
+    });
+
+    sender.send(WriterMessage::Frame(vec![1, 2, 3, 4])).unwrap();
+    sender.send(WriterMessage::Frame(vec![5, 6, 7, 8])).unwrap();
+    sender.send(WriterMessage::Finalize).unwrap();
+
+    let result = handle.join().unwrap().unwrap();
+    assert_eq!(result.size_bytes, 44 + 8 * 2);
+    assert_eq!(result.duration_ms, (4 * 1000) / 48_000);
+    assert!(!std::fs::exists(&temp_path).unwrap());
+    assert!(std::fs::exists(&final_path).unwrap());
+
+    let reader = hound::WavReader::open(&final_path).unwrap();
+    assert_eq!(reader.spec().channels, 2);
+    assert_eq!(reader.spec().sample_rate, 48_000);
+    let samples: Vec<i16> = reader.into_samples::<i16>().map(|s| s.unwrap()).collect();
+    assert_eq!(samples, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+
+    std::fs::remove_dir_all(&dir).ok();
+  }
+
+  #[test]
+  fn discard_deletes_the_temp_file_without_producing_a_result() {
+    let dir = std::env::temp_dir().join("pr5_writer_test_discard");
+    std::fs::create_dir_all(&dir).unwrap();
+    let temp_path = dir.join("rec.wav.tmp");
+    let _ = std::fs::remove_file(&temp_path);
+
+    let spec = hound::WavSpec {
+      channels: 1,
+      sample_rate: 48_000,
+      bits_per_sample: 16,
+      sample_format: hound::SampleFormat::Int,
+    };
+    let writer = hound::WavWriter::create(&temp_path, spec).unwrap();
+    let (sender, receiver) = mpsc::channel::<WriterMessage>();
+
+    let thread_temp_path = temp_path.clone();
+    let handle = thread::spawn(move || -> Option<WriterResult> {
+      let mut writer = writer;
+      loop {
+        match receiver.recv().unwrap() {
+          WriterMessage::Frame(samples) => {
+            for s in samples {
+              writer.write_sample(s).unwrap();
+            }
+          }
+          WriterMessage::Discard => {
+            drop(writer);
+            std::fs::remove_file(&thread_temp_path).unwrap();
+            return None;
+          }
+          WriterMessage::Finalize => panic!("test only sends Discard"),
+        }
+      }
+    });
+
+    sender.send(WriterMessage::Frame(vec![9, 9])).unwrap();
+    sender.send(WriterMessage::Discard).unwrap();
+    let result = handle.join().unwrap();
+
+    assert!(result.is_none());
+    assert!(!std::fs::exists(&temp_path).unwrap());
+    std::fs::remove_dir_all(&dir).ok();
+  }
+}

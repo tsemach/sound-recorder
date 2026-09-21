@@ -2,6 +2,7 @@ mod capture;
 mod commands;
 mod state;
 mod tick;
+mod writer;
 
 use capture::linux_pulse::LinuxPulseCapture;
 use state::SharedState;
