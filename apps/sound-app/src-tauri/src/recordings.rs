@@ -7,6 +7,7 @@ pub struct RecordingMeta {
   pub created_at_ms: u64,
   pub duration_ms: u64,
   pub size_bytes: u64,
+  pub format: String,
 }
 
 fn is_temp_wav(path: &Path) -> bool {
@@ -36,6 +37,12 @@ fn read_one(path: &Path) -> Option<RecordingMeta> {
   let spec = reader.spec();
   let duration_samples = reader.duration();
   let duration_ms = (duration_samples as u64 * 1000) / spec.sample_rate.max(1) as u64;
+  let format = format!(
+    "WAV {} kHz · {} ch · {}-bit",
+    spec.sample_rate / 1000,
+    spec.channels,
+    spec.bits_per_sample
+  );
 
   Some(RecordingMeta {
     path: path.to_string_lossy().to_string(),
@@ -43,6 +50,7 @@ fn read_one(path: &Path) -> Option<RecordingMeta> {
     created_at_ms,
     duration_ms,
     size_bytes,
+    format,
   })
 }
 
@@ -60,17 +68,30 @@ pub fn list_recordings(dir: &Path) -> std::io::Result<Vec<RecordingMeta>> {
       }
     }
   }
-  recordings.sort_by_key(|r| std::cmp::Reverse(r.created_at_ms));
+  recordings.sort_by(|a, b| {
+    b.created_at_ms
+      .cmp(&a.created_at_ms)
+      .then(a.filename.cmp(&b.filename))
+  });
   Ok(recordings)
 }
 
-/// Rejects a `new_name` containing a path separator, not ending in `.wav`,
-/// or colliding with an existing file. On success, renames
-/// `dir/old_name` to `dir/new_name` and returns the new full path.
-pub fn rename_recording(dir: &Path, old_name: &str, new_name: &str) -> Result<String, String> {
-  if new_name.contains('/') || new_name.contains('\\') {
-    return Err("New name cannot contain a path separator".to_string());
+/// Rejects a `name` containing a path separator (defense-in-depth against a
+/// malformed path escaping the save directory).
+fn validate_name(name: &str) -> Result<(), String> {
+  if name.contains('/') || name.contains('\\') {
+    return Err("Name cannot contain a path separator".to_string());
   }
+  Ok(())
+}
+
+/// Rejects an `old_name` or `new_name` containing a path separator, a
+/// `new_name` not ending in `.wav`, or a `new_name` colliding with an
+/// existing file. On success, renames `dir/old_name` to `dir/new_name` and
+/// returns the new full path.
+pub fn rename_recording(dir: &Path, old_name: &str, new_name: &str) -> Result<String, String> {
+  validate_name(old_name)?;
+  validate_name(new_name)?;
   if !new_name.ends_with(".wav") {
     return Err("New name must end in .wav".to_string());
   }
@@ -86,9 +107,7 @@ pub fn rename_recording(dir: &Path, old_name: &str, new_name: &str) -> Result<St
 /// Rejects a `name` containing a path separator (defense-in-depth against a
 /// malformed path escaping the save directory), then deletes `dir/name`.
 pub fn delete_recording(dir: &Path, name: &str) -> Result<(), String> {
-  if name.contains('/') || name.contains('\\') {
-    return Err("Name cannot contain a path separator".to_string());
-  }
+  validate_name(name)?;
   std::fs::remove_file(dir.join(name)).map_err(|e| format!("Could not delete: {e}"))
 }
 
@@ -124,6 +143,7 @@ mod tests {
     assert_eq!(recordings[0].duration_ms, 10);
     assert_eq!(recordings[0].size_bytes, 44 + 960 * 2);
     assert_eq!(recordings[0].filename, "recording-a.wav");
+    assert_eq!(recordings[0].format, "WAV 48 kHz · 2 ch · 16-bit");
 
     std::fs::remove_dir_all(&dir).ok();
   }
@@ -208,6 +228,19 @@ mod tests {
     let result = rename_recording(&dir, "old.wav", "../escape.wav");
     assert!(result.is_err());
     assert!(dir.join("old.wav").exists());
+
+    std::fs::remove_dir_all(&dir).ok();
+  }
+
+  #[test]
+  fn rename_recording_rejects_a_path_separator_in_old_name() {
+    let dir = std::env::temp_dir().join("pr7_recordings_test_rename_old_name_sep");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let result = rename_recording(&dir, "../escape.wav", "new.wav");
+    assert!(result.is_err());
+    assert!(!dir.join("new.wav").exists());
+    assert!(!std::env::temp_dir().join("new.wav").exists());
 
     std::fs::remove_dir_all(&dir).ok();
   }

@@ -155,10 +155,12 @@ Enable the asset protocol scoped to the save directory only:
 (`$AUDIO` is Tauri's built-in path variable for the OS audio directory —
 the same directory `writer::recording_dir` resolves via
 `app.path().audio_dir()`, so the scope and the actual save location stay in
-sync without hardcoding a platform-specific path.) Add the corresponding
-`core:asset:default` permission (or the narrower explicit permission Tauri
-v2's capability system names for asset-protocol reads) to
-`capabilities/default.json`.
+sync without hardcoding a platform-specific path.) No `capabilities/`
+permission is needed for the asset protocol itself — it is governed
+entirely by `tauri.conf.json`'s `security.assetProtocol.scope` above,
+independent of the capabilities/command-permission ACL system. The only
+capability permission this feature needs is `opener:allow-reveal-item-in-dir`,
+and that's for the Reveal-in-file-manager command, unrelated to playback.
 
 ### Frontend
 

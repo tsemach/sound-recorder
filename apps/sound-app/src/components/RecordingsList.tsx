@@ -6,6 +6,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener"
 import { Button } from "@workspace/ui/components/button"
 
 import { errorMessage } from "../lib/errors"
+import { formatDuration } from "../lib/format"
 
 export type RecordingMeta = {
   path: string
@@ -13,16 +14,13 @@ export type RecordingMeta = {
   created_at_ms: number
   duration_ms: number
   size_bytes: number
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+  format: string
 }
 
 function formatSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
   if (bytes < 1024 * 1024) {
     return `${(bytes / 1024).toFixed(0)} KB`
   }
@@ -115,6 +113,7 @@ export function RecordingsList() {
                   className="w-full rounded border p-1 text-sm"
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
+                  aria-label={`New name for ${recording.filename}`}
                   autoFocus
                 />
               ) : (
@@ -128,11 +127,13 @@ export function RecordingsList() {
             <audio
               controls
               src={convertFileSrc(recording.path)}
+              aria-label={`Play ${recording.filename}`}
               className="w-full"
             />
 
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>
+                {recording.format} &middot;{" "}
                 {formatDuration(recording.duration_ms)} &middot;{" "}
                 {formatSize(recording.size_bytes)}
               </span>
@@ -155,13 +156,18 @@ export function RecordingsList() {
                   </>
                 ) : (
                   <>
-                    <Button size="sm" onClick={() => startRename(recording)}>
+                    <Button
+                      size="sm"
+                      onClick={() => startRename(recording)}
+                      aria-label={`Rename ${recording.filename}`}
+                    >
                       Rename
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => void handleReveal(recording)}
+                      aria-label={`Reveal ${recording.filename}`}
                     >
                       Reveal
                     </Button>
@@ -169,6 +175,7 @@ export function RecordingsList() {
                       size="sm"
                       variant="destructive"
                       onClick={() => void handleDelete(recording)}
+                      aria-label={`Delete ${recording.filename}`}
                     >
                       Delete
                     </Button>

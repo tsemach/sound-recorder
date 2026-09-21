@@ -5,13 +5,7 @@ import { Button } from "@workspace/ui/components/button"
 import { RecordingsList } from "./components/RecordingsList"
 import { ThemeProvider } from "./components/theme-provider"
 import { useRecordingState } from "./hooks/useRecordingState"
-
-function formatElapsed(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
-}
+import { formatDuration } from "./lib/format"
 
 export function App() {
   const {
@@ -50,15 +44,23 @@ export function App() {
       <div className="flex min-h-svh flex-col gap-4 p-6">
         <div className="flex items-center justify-between">
           <h1 className="font-medium">Sound Recorder</h1>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setView(view === "recorder" ? "recordings" : "recorder")
-            }
-          >
-            {view === "recorder" ? "Recordings" : "Back to Recorder"}
-          </Button>
+          <div className="flex items-center gap-3">
+            {isActive && (
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <span className="h-2 w-2 rounded-full bg-destructive" />
+                Recording &middot; {formatDuration(elapsedMs)}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setView(view === "recorder" ? "recordings" : "recorder")
+              }
+            >
+              {view === "recorder" ? "Recordings" : "Back to Recorder"}
+            </Button>
+          </div>
         </div>
 
         {view === "recordings" ? (
@@ -86,7 +88,7 @@ export function App() {
             )}
 
             <div className="font-mono text-2xl">
-              {formatElapsed(isActive ? elapsedMs : 0)}
+              {formatDuration(isActive ? elapsedMs : 0)}
             </div>
 
             {isActive && (
