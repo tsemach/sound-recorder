@@ -5,21 +5,14 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener"
 
 import { Button } from "@workspace/ui/components/button"
 
+import { errorMessage } from "../lib/errors"
+
 export type RecordingMeta = {
   path: string
   filename: string
   created_at_ms: number
   duration_ms: number
   size_bytes: number
-}
-
-type CommandError = { message: string; recoverable: boolean }
-
-function errorMessage(err: unknown): string {
-  if (err && typeof err === "object" && "message" in err) {
-    return String((err as CommandError).message)
-  }
-  return String(err)
 }
 
 function formatDuration(ms: number): string {
