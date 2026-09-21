@@ -98,7 +98,12 @@ pub struct SharedState {
   pub format: Arc<Mutex<AudioFormat>>,
   /// The active recording's writer thread handle, if any (PR 5). `stop_recording`/
   /// `cancel_recording` `.take()` this out to send the terminal Finalize/Discard
-  /// message and join the thread.
+  /// message and join the thread. The writer thread itself must never lock this
+  /// field — it only communicates via its `mpsc` channel — since `stop_recording`/
+  /// `cancel_recording` hold this lock only briefly (to `.take()` the handle) but
+  /// then `join()` that same thread outside the lock; a writer-thread-side lock
+  /// attempt on `state.writer` would risk deadlocking against a `.take()` that
+  /// hasn't happened yet.
   pub writer: Mutex<Option<crate::writer::WriterHandle>>,
 }
 

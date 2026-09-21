@@ -48,7 +48,7 @@ pub fn recording_dir(app: &AppHandle) -> Result<PathBuf, String> {
 pub fn timestamped_wav_paths(dir: &Path) -> (PathBuf, PathBuf) {
   let now = std::time::SystemTime::now();
   let datetime: chrono::DateTime<chrono::Local> = now.into();
-  let name = format!("recording-{}.wav", datetime.format("%Y-%m-%d_%H-%M-%S"));
+  let name = format!("recording-{}.wav", datetime.format("%Y-%m-%d_%H-%M-%S%.3f"));
   let final_path = dir.join(&name);
   let temp_path = dir.join(format!("{name}.tmp"));
   (temp_path, final_path)
@@ -135,7 +135,12 @@ fn run_writer_loop(
       }
       Ok(WriterMessage::Finalize) => {
         if failed {
-          let _ = std::fs::remove_file(&temp_path);
+          // Don't delete: the temp file is already flushed and valid up to
+          // the last successful frame (see the channel-closed arm below for
+          // the same rationale). Preserve it for
+          // recovery::recover_orphaned_recordings to promote at next
+          // startup, consistent with every other non-explicit-Discard exit
+          // path in this loop.
           return None;
         }
         let duration_samples = writer.duration();
@@ -246,13 +251,22 @@ mod tests {
       }
     });
 
-    sender.send(WriterMessage::Frame(vec![1, 2, 3, 4])).unwrap();
-    sender.send(WriterMessage::Frame(vec![5, 6, 7, 8])).unwrap();
+    let first_frame: Vec<i16> = (0..960).collect(); // 480 stereo frames = 10ms at 48kHz
+    let second_frame: Vec<i16> = (960..1920).collect(); // another 480 stereo frames = 10ms
+    sender
+      .send(WriterMessage::Frame(first_frame.clone()))
+      .unwrap();
+    sender
+      .send(WriterMessage::Frame(second_frame.clone()))
+      .unwrap();
     sender.send(WriterMessage::Finalize).unwrap();
 
     let result = handle.join().unwrap().unwrap();
-    assert_eq!(result.size_bytes, 44 + 8 * 2);
-    assert_eq!(result.duration_ms, (4 * 1000) / 48_000);
+    assert_eq!(
+      result.size_bytes,
+      44 + (first_frame.len() + second_frame.len()) as u64 * 2
+    );
+    assert_eq!(result.duration_ms, 20); // 960 total stereo frames / 48_000 Hz * 1000 = 20ms, exact
     assert!(!std::fs::exists(&temp_path).unwrap());
     assert!(std::fs::exists(&final_path).unwrap());
 
@@ -260,7 +274,9 @@ mod tests {
     assert_eq!(reader.spec().channels, 2);
     assert_eq!(reader.spec().sample_rate, 48_000);
     let samples: Vec<i16> = reader.into_samples::<i16>().map(|s| s.unwrap()).collect();
-    assert_eq!(samples, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    let mut expected = first_frame;
+    expected.extend(second_frame);
+    assert_eq!(samples, expected);
 
     std::fs::remove_dir_all(&dir).ok();
   }

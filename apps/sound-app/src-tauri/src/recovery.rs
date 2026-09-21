@@ -17,6 +17,19 @@ fn patch_header(path: &Path) -> std::io::Result<()> {
       "smaller than a WAV header",
     ));
   }
+  // hound uses a larger (64-byte) WAVEFORMATEXTENSIBLE header for >2
+  // channels or >16-bit recordings, where the data-size field is NOT at
+  // byte offset 40 -- writing there would corrupt the fmt chunk instead of
+  // patching a size field. This app's recordings are always <=2 channels
+  // at 16-bit (see AudioFormat), so a file this large before any flush
+  // patched its header is not something this fallback can safely handle;
+  // let it fall through to deletion in recover_one instead of corrupting it.
+  if total_size > 10_000_000 {
+    return Err(std::io::Error::new(
+      std::io::ErrorKind::InvalidData,
+      "unexpectedly large unflushed file, refusing to guess its header layout",
+    ));
+  }
   let data_len = (total_size - 44) as u32;
   let riff_len = (total_size - 8) as u32;
 
@@ -78,8 +91,12 @@ pub fn recover_orphaned_recordings(dir: &Path) -> std::io::Result<Vec<PathBuf>> 
         .map(|s| s.ends_with(".wav"))
         .unwrap_or(false);
     if is_temp_wav {
-      if let Some(final_path) = recover_one(&path)? {
-        recovered.push(final_path);
+      match recover_one(&path) {
+        Ok(Some(final_path)) => recovered.push(final_path),
+        Ok(None) => {}
+        Err(e) => {
+          log::warn!("Could not recover orphaned recording {path:?}: {e}");
+        }
       }
     }
   }

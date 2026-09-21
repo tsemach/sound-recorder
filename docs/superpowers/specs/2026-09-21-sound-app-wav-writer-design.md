@@ -80,6 +80,16 @@ it (see "Guarded transitions" below).
   are left as-is — losing their narrower race merely delays a state flip by
   one tick, not misreport a failed recording as saved. Full test-and-set
   hardening of all five commands is not this PR's job.
+
+  **Correction (recorded after implementation, by the final whole-branch
+  review):** this "merely delays a state flip" claim does not fully hold —
+  `try_start` now does real directory/file creation before returning, and a
+  writer or capture error racing that window can still reach
+  `stop_recording` later and, absent Fix 3's header-only guard, would have
+  reported a fake `Saved` for zero real audio data. Fix 3 (checking
+  `size_bytes > 44` before reporting `Saved`) closes the concrete harm;
+  full guarded-transition coverage of `start`/`pause`/`resume` remains
+  recommended future work, not done in this PR.
 - **Rejected approaches**: writing to disk inline in the existing frame
   callback (explicitly warned against by PR 4's review — real xrun risk);
   an async/Tokio-based writer requiring `async` Tauri commands (would

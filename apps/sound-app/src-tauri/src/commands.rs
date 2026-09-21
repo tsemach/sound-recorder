@@ -18,17 +18,21 @@ const TICK_INTERVAL: Duration = Duration::from_millis(100);
 // using `std::mem::replace` under one lock acquisition) before that happens.
 // See PR 3's final review for detail.
 //
-// This is NOT safe against the frame callback (below), which writes
-// `RecordingState::Error` from the capture's own background thread — a
-// second, genuinely concurrent writer to `state.state` introduced in PR 4.
-// A command that already passed its `can_*` guard on a stale `Recording`/
-// `Paused` snapshot can still overwrite a just-written `Error` with e.g.
-// `Saved`, silently discarding the failure. Low-probability (needs a
-// mid-stream capture failure to land in a narrow window against a command
-// call) and currently cosmetic, but PR 5 (which will persist `Saved`'s
-// `file_path` for real) needs to close this — either the `transition()`
-// helper above, or restricting the frame callback's error write to when
-// the current state is still `Recording`/`Paused`.
+// This is NOT safe against the frame callback or the writer thread, both
+// of which can write `RecordingState::Error` from their own background
+// threads — genuinely concurrent writers to `state.state` introduced in
+// PR 4 (capture) and PR 5 (writer). PR 5's `stop_recording`/
+// `cancel_recording` close this via `state::try_transition` (a guarded
+// check-and-set under one lock acquisition, used instead of this
+// function for those two commands). This function (`emit_state`) is still
+// used unguarded by `start_recording`/`pause_recording`/`resume_recording`
+// — for those three, a command that already passed its `can_*` guard on a
+// stale snapshot can still overwrite a just-written `Error` with e.g.
+// `Recording`. This is low-probability (needs a mid-stream failure to land
+// in a narrow window against one of these three specific calls) but, with
+// a real file on disk, it is no longer purely cosmetic: it can produce a
+// misleading state or an eventual empty/fake `Saved` on a later stop. If
+// this needs closing, extend `try_transition` to these three commands too.
 fn emit_state(app: &AppHandle, state: &SharedState, next: RecordingState) {
   *state.state.lock().unwrap() = next.clone();
   let _ = app.emit("recording-state-changed", next);
@@ -85,6 +89,15 @@ fn try_start(
   state: &SharedState,
   app: &AppHandle,
 ) -> Result<String, CommandError> {
+  // Defensively tear down any stale capture/writer from a prior recording
+  // that never got a clean stop/cancel (e.g. a writer error left the
+  // capture thread running with no user-facing way to stop it). Without
+  // this, a second start_recording would leave two live capture threads
+  // sharing the same running/paused flags (doubling the elapsed-time rate)
+  // and silently orphan the old writer handle.
+  let _ = state.capture.lock().unwrap().stop();
+  state.writer.lock().unwrap().take();
+
   let sources = state
     .capture
     .lock()
@@ -265,6 +278,18 @@ pub fn resume_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
   Ok(())
 }
 
+/// The guarded `Recording`/`Paused` -> `Saving` transition `stop_recording`
+/// performs right after stopping capture and taking the writer handle.
+/// Extracted into its own function so it's directly unit-testable without a
+/// real `AppHandle` (see this file's `tests` module for why `stop_recording`
+/// itself can't be called from a plain unit test) — mirrors the pattern
+/// `writer.rs`'s own tests use for `run_writer_loop`: test the extracted
+/// decision logic rather than fight to construct Tauri runtime scaffolding
+/// a unit test doesn't have.
+fn try_begin_saving(state: &Arc<Mutex<RecordingState>>) -> bool {
+  try_transition(state, RecordingState::can_stop, RecordingState::Saving)
+}
+
 #[tauri::command]
 pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), CommandError> {
   {
@@ -281,7 +306,7 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
   let writer_handle = state.writer.lock().unwrap().take();
 
   let next = RecordingState::Saving;
-  if !try_transition(&state.state, RecordingState::can_stop, next.clone()) {
+  if !try_begin_saving(&state.state) {
     // The state already moved on (almost certainly a concurrent capture or
     // writer Error) -- don't clobber it, and don't discard the writer
     // either. Just drop `writer_handle` here: dropping its `sender` closes
@@ -303,7 +328,7 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
         handle.join_handle.join().ok().flatten()
       });
       match result {
-        Some(r) => {
+        Some(r) if r.size_bytes > 44 => {
           let next = RecordingState::Saved {
             file_path: r.file_path,
             duration_ms: r.duration_ms,
@@ -312,6 +337,21 @@ pub fn stop_recording(state: State<SharedState>, app: AppHandle) -> Result<(), C
           *state.state.lock().unwrap() = next.clone();
           let _ = app.emit("recording-state-changed", next);
           Ok(())
+        }
+        Some(_) => {
+          // A header-only result (no real audio data) means either an
+          // instant record-then-stop, or a race where a writer/capture
+          // error happened but got clobbered before the guard could catch
+          // it. Report it as a recoverable error rather than a misleading
+          // "Saved" with an effectively empty file.
+          let message = "No audio was captured before the recording stopped".to_string();
+          let next = RecordingState::Error {
+            message: message.clone(),
+            recoverable: true,
+          };
+          *state.state.lock().unwrap() = next.clone();
+          let _ = app.emit("recording-state-changed", next);
+          Err(CommandError::new(message))
         }
         None => {
           let message = "Recording stopped, but the audio file could not be saved".to_string();
@@ -367,4 +407,55 @@ pub fn cancel_recording(state: State<SharedState>, app: AppHandle) -> Result<(),
     let _ = app.emit("recording-state-changed", next);
   }
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::capture::fake::FakeCapture;
+
+  // `stop_recording` itself is a `#[tauri::command]` taking a real
+  // `tauri::AppHandle`/`State<SharedState>`, both concretely tied to the
+  // `Wry` runtime (`pub type AppHandle<R = crate::Wry> = ...` in tauri
+  // 2.11.6's own source). `tauri::test::mock_builder()` builds an
+  // `App`/`AppHandle` over `MockRuntime` instead, which does not unify
+  // with `Wry` -- so it can't be substituted into these command signatures
+  // without making `commands.rs` generic over `Runtime`, a much larger
+  // change than this fix warrants. So this test exercises
+  // `try_begin_saving`, the exact guarded-transition call `stop_recording`
+  // performs, directly against a real `SharedState` built the same way
+  // this crate's other module-level tests do (via `FakeCapture`) --
+  // mirroring the pattern `writer.rs`'s own tests use for
+  // `run_writer_loop` of testing extracted decision logic instead of
+  // fighting Tauri runtime scaffolding in a unit test.
+  #[test]
+  fn stop_recording_guard_does_not_clobber_a_concurrent_error() {
+    let state = SharedState::new(Box::new(FakeCapture::new()));
+    *state.state.lock().unwrap() = RecordingState::Recording {
+      source_name: "test".into(),
+      elapsed_ms: 0,
+    };
+
+    // Simulate a concurrent capture/writer error landing first, exactly as
+    // stop_recording's own race-backoff comment describes.
+    *state.state.lock().unwrap() = RecordingState::Error {
+      message: "simulated".into(),
+      recoverable: true,
+    };
+
+    let transitioned = try_begin_saving(&state.state);
+
+    assert!(
+      !transitioned,
+      "the guarded transition must back off, not clobber the race"
+    );
+    assert_eq!(
+      *state.state.lock().unwrap(),
+      RecordingState::Error {
+        message: "simulated".into(),
+        recoverable: true,
+      },
+      "state must still be the concurrently-written Error, not Saving"
+    );
+  }
 }
