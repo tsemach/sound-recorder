@@ -3,6 +3,7 @@ import { Alert } from "react-native"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native"
 
 import type { AudioCapture, AudioSource } from "../capture/types"
+import { FakeCapture } from "../capture/fakeCapture"
 import { MainScreen } from "./MainScreen"
 
 function makeMockCapture(sources: AudioSource[]): AudioCapture {
@@ -59,5 +60,17 @@ describe("MainScreen", () => {
     await discardButton?.onPress?.()
 
     await waitFor(() => expect(screen.getByText("Record")).toBeTruthy())
+  })
+
+  it("uses a single stable FakeCapture instance when no capture prop is given", async () => {
+    const listSourcesSpy = jest.spyOn(FakeCapture.prototype, "listSources")
+
+    render(<MainScreen />)
+
+    await waitFor(() => expect(screen.getByText("Fake System Audio")).toBeTruthy())
+
+    expect(listSourcesSpy).toHaveBeenCalledTimes(1)
+
+    listSourcesSpy.mockRestore()
   })
 })

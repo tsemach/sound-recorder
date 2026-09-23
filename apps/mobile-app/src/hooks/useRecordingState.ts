@@ -29,7 +29,13 @@ function computeLevel(frame: Int16Array): number {
   return Math.sqrt(sumSquares / frame.length)
 }
 
-export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
+export function useRecordingState(capture?: AudioCapture) {
+  const fallbackRef = useRef<AudioCapture | null>(null)
+  if (fallbackRef.current === null) {
+    fallbackRef.current = new FakeCapture()
+  }
+  const activeCapture = capture ?? fallbackRef.current
+
   const [state, setState] = useState<RecordingState>({ state: "Idle" })
   const [level, setLevel] = useState(0)
   const [sources, setSources] = useState<AudioSource[]>([])
@@ -61,7 +67,7 @@ export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
 
   useEffect(() => {
     let cancelled = false
-    capture
+    activeCapture
       .listSources()
       .then((result) => {
         if (!cancelled) setSources(result)
@@ -72,7 +78,7 @@ export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
     return () => {
       cancelled = true
     }
-  }, [capture])
+  }, [activeCapture])
 
   const stopTickLoop = useCallback(() => {
     if (tickIntervalRef.current !== null) {
@@ -100,7 +106,7 @@ export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
         const sourceName = source?.name ?? sourceId
         applyState(prepare(stateRef.current))
         latestFrameRef.current = null
-        await capture.start(sourceId, (frame) => {
+        await activeCapture.start(sourceId, (frame) => {
           latestFrameRef.current = frame
         })
         startedAtRef.current = Date.now()
@@ -112,39 +118,39 @@ export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
         handleFailure(err)
       }
     },
-    [applyState, capture, handleFailure, sources, startTickLoop, stopTickLoop]
+    [activeCapture, applyState, handleFailure, sources, startTickLoop, stopTickLoop]
   )
 
   const pauseRecording = useCallback(() => {
     setError(null)
     try {
       applyState(pause(stateRef.current))
-      capture.pause()
+      activeCapture.pause()
       pausedAtRef.current = Date.now()
       stopTickLoop()
     } catch (err) {
       handleFailure(err)
     }
-  }, [applyState, capture, handleFailure, stopTickLoop])
+  }, [activeCapture, applyState, handleFailure, stopTickLoop])
 
   const resumeRecording = useCallback(() => {
     setError(null)
     try {
       applyState(resume(stateRef.current))
-      capture.resume()
+      activeCapture.resume()
       pausedAccumRef.current += Date.now() - pausedAtRef.current
       startTickLoop()
     } catch (err) {
       handleFailure(err)
     }
-  }, [applyState, capture, handleFailure, startTickLoop])
+  }, [activeCapture, applyState, handleFailure, startTickLoop])
 
   const stopRecording = useCallback(async () => {
     setError(null)
     try {
       applyState(stop(stateRef.current))
       stopTickLoop()
-      await capture.stop()
+      await activeCapture.stop()
       const durationMs = Date.now() - startedAtRef.current - pausedAccumRef.current
       applyState(
         finish(stateRef.current, {
@@ -156,18 +162,18 @@ export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
     } catch (err) {
       handleFailure(err)
     }
-  }, [applyState, capture, handleFailure, stopTickLoop])
+  }, [activeCapture, applyState, handleFailure, stopTickLoop])
 
   const cancelRecording = useCallback(async () => {
     setError(null)
     try {
       applyState(cancel(stateRef.current))
       stopTickLoop()
-      await capture.stop()
+      await activeCapture.stop()
     } catch (err) {
       handleFailure(err)
     }
-  }, [applyState, capture, handleFailure, stopTickLoop])
+  }, [activeCapture, applyState, handleFailure, stopTickLoop])
 
   const elapsedMs =
     state.state === "Recording" || state.state === "Paused" ? state.elapsedMs : 0

@@ -20,6 +20,9 @@ export class FakeCapture implements AudioCapture {
     _sourceId: string,
     onFrame: (frame: Int16Array) => void
   ): Promise<void> {
+    if (this.intervalId !== null) {
+      throw new Error("FakeCapture.start() called while already running")
+    }
     this.paused = false
     this.phase = 0
     const samplesPerBuffer = Math.floor((SAMPLE_RATE * BUFFER_MS) / 1000)

@@ -74,4 +74,15 @@ describe("FakeCapture", () => {
     jest.advanceTimersByTime(100)
     expect(frames.length).toBe(countAtStop)
   })
+
+  it("throws if start() is called again while already running", async () => {
+    const capture = new FakeCapture()
+    await capture.start("fake-system-audio", () => {})
+
+    await expect(capture.start("fake-system-audio", () => {})).rejects.toThrow(
+      "FakeCapture.start() called while already running"
+    )
+
+    await capture.stop()
+  })
 })
