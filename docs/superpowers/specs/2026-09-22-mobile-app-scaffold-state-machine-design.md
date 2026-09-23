@@ -181,6 +181,9 @@ Single screen, no navigation:
 - Level meter: a plain `View` bar tracking `level` (0–1) from the tick
   callback.
 - Error banner rendering the hook's `error`.
+- Saved confirmation: a visible line ("Saved · {filePath}") shown when
+  `state.state === "Saved"`, so the `saved` state is not indistinguishable
+  from idle.
 - Cancel confirmation via RN's `Alert.alert` (native-confirm equivalent of
   sound-app's Tauri `confirm()` dialog; satisfies PRD's "confirm
   cancellation" requirement with no extra dependency).

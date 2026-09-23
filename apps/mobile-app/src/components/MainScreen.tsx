@@ -84,6 +84,10 @@ export function MainScreen({ capture }: MainScreenProps = {}) {
 
       {state.state === "Saving" && <Text style={styles.saving}>Saving…</Text>}
 
+      {state.state === "Saved" && (
+        <Text style={styles.saved}>Saved · {state.filePath}</Text>
+      )}
+
       <View style={styles.buttonRow}>
         {canStart && sources.length > 0 && effectiveSourceId && (
           <Pressable
@@ -146,6 +150,7 @@ const styles = StyleSheet.create({
   },
   levelFill: { height: 8, backgroundColor: "#2563eb" },
   saving: { color: "#6b7280" },
+  saved: { color: "#16a34a" },
   buttonRow: { flexDirection: "row", gap: 8 },
   button: {
     backgroundColor: "#2563eb",
