@@ -118,6 +118,38 @@ describe("useRecordingState", () => {
     expect(result.current.state).toEqual({ state: "Idle" })
   })
 
+  it("does not include time spent paused in durationMs when stopping while paused", async () => {
+    const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
+    const { result } = renderHook(() => useRecordingState(capture))
+    await waitFor(() => expect(result.current.sources).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.startRecording("s1")
+    })
+
+    act(() => {
+      jest.advanceTimersByTime(2000)
+    })
+
+    act(() => {
+      result.current.pauseRecording()
+    })
+
+    act(() => {
+      jest.advanceTimersByTime(60000)
+    })
+
+    await act(async () => {
+      await result.current.stopRecording()
+    })
+
+    const state = result.current.state
+    expect(state.state).toBe("Saved")
+    if (state.state === "Saved") {
+      expect(state.durationMs).toBeLessThan(3000)
+    }
+  })
+
   it("transitions to a recoverable Error state when capture.start rejects", async () => {
     const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
     capture.start = jest.fn(async () => {

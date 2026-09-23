@@ -148,6 +148,9 @@ export function useRecordingState(capture?: AudioCapture) {
   const stopRecording = useCallback(async () => {
     setError(null)
     try {
+      if (stateRef.current.state === "Paused") {
+        pausedAccumRef.current += Date.now() - pausedAtRef.current
+      }
       applyState(stop(stateRef.current))
       stopTickLoop()
       await activeCapture.stop()
