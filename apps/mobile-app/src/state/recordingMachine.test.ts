@@ -158,11 +158,14 @@ describe("cancel", () => {
 })
 
 describe("fail", () => {
-  it.each(allStates)("is legal from any state (%o) and returns Error", (from) => {
-    expect(fail(from, "boom", true)).toEqual({
-      state: "Error",
-      message: "boom",
-      recoverable: true,
-    })
-  })
+  it.each(allStates)(
+    "is legal from any state (%o) and returns Error",
+    (from) => {
+      expect(fail(from, "boom", true)).toEqual({
+        state: "Error",
+        message: "boom",
+        recoverable: true,
+      })
+    }
+  )
 })

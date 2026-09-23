@@ -9,9 +9,11 @@ function makeMockCapture(sources: AudioSource[]): AudioCapture & {
   let onFrame: ((frame: Int16Array) => void) | null = null
   return {
     listSources: jest.fn(async () => sources),
-    start: jest.fn(async (_sourceId: string, cb: (frame: Int16Array) => void) => {
-      onFrame = cb
-    }),
+    start: jest.fn(
+      async (_sourceId: string, cb: (frame: Int16Array) => void) => {
+        onFrame = cb
+      }
+    ),
     pause: jest.fn(),
     resume: jest.fn(),
     stop: jest.fn(async () => {

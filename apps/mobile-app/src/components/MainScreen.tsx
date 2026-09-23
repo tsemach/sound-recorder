@@ -72,12 +72,17 @@ export function MainScreen({ capture }: MainScreenProps = {}) {
         </View>
       )}
 
-      <Text style={styles.timer}>{formatDuration(isActive ? elapsedMs : 0)}</Text>
+      <Text style={styles.timer}>
+        {formatDuration(isActive ? elapsedMs : 0)}
+      </Text>
 
       {isActive && (
         <View style={styles.levelTrack}>
           <View
-            style={[styles.levelFill, { width: `${Math.min(level, 1) * 100}%` }]}
+            style={[
+              styles.levelFill,
+              { width: `${Math.min(level, 1) * 100}%` },
+            ]}
           />
         </View>
       )}

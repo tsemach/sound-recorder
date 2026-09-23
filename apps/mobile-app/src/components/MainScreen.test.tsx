@@ -1,6 +1,12 @@
 import React from "react"
 import { Alert } from "react-native"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native"
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react-native"
 
 import type { AudioCapture, AudioSource } from "../capture/types"
 import { FakeCapture } from "../capture/fakeCapture"
@@ -106,7 +112,9 @@ describe("MainScreen", () => {
 
     render(<MainScreen capture={capture} />)
 
-    await waitFor(() => expect(screen.getByText("mic unavailable")).toBeTruthy())
+    await waitFor(() =>
+      expect(screen.getByText("mic unavailable")).toBeTruthy()
+    )
   })
 
   it("uses a single stable FakeCapture instance when no capture prop is given", async () => {
@@ -114,7 +122,9 @@ describe("MainScreen", () => {
 
     render(<MainScreen />)
 
-    await waitFor(() => expect(screen.getByText("Fake System Audio")).toBeTruthy())
+    await waitFor(() =>
+      expect(screen.getByText("Fake System Audio")).toBeTruthy()
+    )
 
     expect(listSourcesSpy).toHaveBeenCalledTimes(1)
 

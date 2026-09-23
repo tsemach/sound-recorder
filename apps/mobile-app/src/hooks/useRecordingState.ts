@@ -90,9 +90,12 @@ export function useRecordingState(capture?: AudioCapture) {
   const startTickLoop = useCallback(() => {
     stopTickLoop()
     tickIntervalRef.current = setInterval(() => {
-      const elapsedMs = Date.now() - startedAtRef.current - pausedAccumRef.current
+      const elapsedMs =
+        Date.now() - startedAtRef.current - pausedAccumRef.current
       applyState(updateElapsed(stateRef.current, elapsedMs))
-      setLevel(latestFrameRef.current ? computeLevel(latestFrameRef.current) : 0)
+      setLevel(
+        latestFrameRef.current ? computeLevel(latestFrameRef.current) : 0
+      )
     }, TICK_MS)
   }, [applyState, stopTickLoop])
 
@@ -128,7 +131,14 @@ export function useRecordingState(capture?: AudioCapture) {
         handleFailure(err)
       }
     },
-    [activeCapture, applyState, handleFailure, sources, startTickLoop, stopTickLoop]
+    [
+      activeCapture,
+      applyState,
+      handleFailure,
+      sources,
+      startTickLoop,
+      stopTickLoop,
+    ]
   )
 
   const pauseRecording = useCallback(() => {
@@ -165,7 +175,8 @@ export function useRecordingState(capture?: AudioCapture) {
       applyState(stop(stateRef.current))
       stopTickLoop()
       await activeCapture.stop()
-      const durationMs = Date.now() - startedAtRef.current - pausedAccumRef.current
+      const durationMs =
+        Date.now() - startedAtRef.current - pausedAccumRef.current
       applyState(
         finish(stateRef.current, {
           filePath: `fake/recording-${Date.now()}.wav`,
@@ -190,7 +201,9 @@ export function useRecordingState(capture?: AudioCapture) {
   }, [activeCapture, applyState, handleFailure, stopTickLoop])
 
   const elapsedMs =
-    state.state === "Recording" || state.state === "Paused" ? state.elapsedMs : 0
+    state.state === "Recording" || state.state === "Paused"
+      ? state.elapsedMs
+      : 0
 
   return {
     state,

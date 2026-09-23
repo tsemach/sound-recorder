@@ -35,7 +35,10 @@ export function prepare(state: RecordingState): RecordingState {
   return { state: "Preparing" }
 }
 
-export function begin(state: RecordingState, sourceName: string): RecordingState {
+export function begin(
+  state: RecordingState,
+  sourceName: string
+): RecordingState {
   if (state.state !== "Preparing") {
     throw new IllegalTransitionError(`Cannot begin from state ${state.state}`)
   }
@@ -46,17 +49,28 @@ export function pause(state: RecordingState): RecordingState {
   if (state.state !== "Recording") {
     throw new IllegalTransitionError(`Cannot pause from state ${state.state}`)
   }
-  return { state: "Paused", sourceName: state.sourceName, elapsedMs: state.elapsedMs }
+  return {
+    state: "Paused",
+    sourceName: state.sourceName,
+    elapsedMs: state.elapsedMs,
+  }
 }
 
 export function resume(state: RecordingState): RecordingState {
   if (state.state !== "Paused") {
     throw new IllegalTransitionError(`Cannot resume from state ${state.state}`)
   }
-  return { state: "Recording", sourceName: state.sourceName, elapsedMs: state.elapsedMs }
+  return {
+    state: "Recording",
+    sourceName: state.sourceName,
+    elapsedMs: state.elapsedMs,
+  }
 }
 
-export function updateElapsed(state: RecordingState, elapsedMs: number): RecordingState {
+export function updateElapsed(
+  state: RecordingState,
+  elapsedMs: number
+): RecordingState {
   if (state.state === "Recording" || state.state === "Paused") {
     return { ...state, elapsedMs }
   }
@@ -70,7 +84,10 @@ export function stop(state: RecordingState): RecordingState {
   return { state: "Saving" }
 }
 
-export function finish(state: RecordingState, result: SavedResult): RecordingState {
+export function finish(
+  state: RecordingState,
+  result: SavedResult
+): RecordingState {
   if (state.state !== "Saving") {
     throw new IllegalTransitionError(`Cannot finish from state ${state.state}`)
   }
