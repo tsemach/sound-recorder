@@ -96,7 +96,17 @@ export function useRecordingState(capture?: AudioCapture) {
     }, TICK_MS)
   }, [applyState, stopTickLoop])
 
-  useEffect(() => stopTickLoop, [stopTickLoop])
+  useEffect(() => {
+    return () => {
+      stopTickLoop()
+      void activeCapture.stop()
+    }
+    // Empty deps: this must run only on actual unmount, not whenever
+    // activeCapture/stopTickLoop identity changes. activeCapture is stable
+    // across renders when no capture prop is passed (see the lazy fallback
+    // ref above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const startRecording = useCallback(
     async (sourceId: string) => {
@@ -128,6 +138,7 @@ export function useRecordingState(capture?: AudioCapture) {
       activeCapture.pause()
       pausedAtRef.current = Date.now()
       stopTickLoop()
+      setLevel(0)
     } catch (err) {
       handleFailure(err)
     }

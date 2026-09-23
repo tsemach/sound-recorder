@@ -150,6 +150,43 @@ describe("useRecordingState", () => {
     }
   })
 
+  it("stops the capture on unmount while a recording is active", async () => {
+    const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
+    const { result, unmount } = renderHook(() => useRecordingState(capture))
+    await waitFor(() => expect(result.current.sources).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.startRecording("s1")
+    })
+
+    unmount()
+
+    expect(capture.stop).toHaveBeenCalled()
+  })
+
+  it("zeroes the level meter when pausing", async () => {
+    const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
+    const { result } = renderHook(() => useRecordingState(capture))
+    await waitFor(() => expect(result.current.sources).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.startRecording("s1")
+    })
+
+    act(() => {
+      capture.emitFrame(new Int16Array([32767, -32768, 0, 0]))
+      jest.advanceTimersByTime(100)
+    })
+
+    expect(result.current.level).toBeGreaterThan(0)
+
+    act(() => {
+      result.current.pauseRecording()
+    })
+
+    expect(result.current.level).toBe(0)
+  })
+
   it("transitions to a recoverable Error state when capture.start rejects", async () => {
     const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
     capture.start = jest.fn(async () => {
