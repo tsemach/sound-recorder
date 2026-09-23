@@ -156,10 +156,13 @@ interface AudioCapture {
 (`fake-system-audio` / `fake-microphone`, matching sound-app's `FakeCapture`
 naming). `start()` runs a `setInterval` at ~20ms generating a synthetic
 sine-wave sample buffer and invoking `onFrame`. The **hook**, not the
-capture implementation, computes `elapsedMs` from frame count and `level`
-(RMS-style amplitude) from each buffer, throttled to ~10Hz UI updates — the
-same division of responsibility sound-app used so a later native capture
-module only has to match `AudioCapture`'s shape, not reimplement this math.
+capture implementation, computes `elapsedMs` from wall-clock time
+(`Date.now()` deltas against when recording started, minus accumulated
+paused time) and `level` (RMS-style amplitude) from each buffer, throttled
+to ~10Hz UI updates — the same division of responsibility sound-app used so
+a later native capture module only has to match `AudioCapture`'s shape, not
+reimplement this math. Deriving `elapsedMs` from wall-clock time rather than
+frame count avoids needing to know the capture's sample rate/format.
 
 ### Hook surface
 

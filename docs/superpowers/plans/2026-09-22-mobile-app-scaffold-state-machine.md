@@ -1074,7 +1074,7 @@ git commit -m "feat(mobile-app): add useRecordingState hook"
 - Create: `apps/mobile-app/src/components/MainScreen.tsx`
 - Test: `apps/mobile-app/src/components/MainScreen.test.tsx`
 - Modify: `apps/mobile-app/App.tsx` (replace the CLI's default template content entirely)
-- Add devDependency: `@testing-library/react-native` (version `14.0.1`)
+- Add devDependency: `@testing-library/react-native` (version `13.3.3`)
 
 **Interfaces:**
 - Consumes: `useRecordingState` from `../hooks/useRecordingState` (Task 5); `formatDuration` from `../lib/format` (Task 2); `AudioCapture` type from `../capture/types` (Task 4).
@@ -1083,7 +1083,7 @@ git commit -m "feat(mobile-app): add useRecordingState hook"
 - [ ] **Step 1: Add the test-library devDependency**
 
 ```bash
-pnpm --filter mobile-app add -D @testing-library/react-native@14.0.1
+pnpm --filter mobile-app add -D @testing-library/react-native@13.3.3
 ```
 
 - [ ] **Step 2: Write the failing component test**
