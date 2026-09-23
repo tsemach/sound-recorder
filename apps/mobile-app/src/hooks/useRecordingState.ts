@@ -161,10 +161,9 @@ export function useRecordingState(capture: AudioCapture = new FakeCapture()) {
   const cancelRecording = useCallback(async () => {
     setError(null)
     try {
-      const next = cancel(stateRef.current)
+      applyState(cancel(stateRef.current))
       stopTickLoop()
       await capture.stop()
-      applyState(next)
     } catch (err) {
       handleFailure(err)
     }
