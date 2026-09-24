@@ -91,13 +91,21 @@ depends on that fix already being in place.
     `start(sourceId, onLevel: (level: number) => void)` — capture
     implementations now report a computed level directly instead of hand-
     ing over raw samples for the hook to process.
-  - `stop(): Promise<void>` becomes `stop(): Promise<SavedResult>`,
-    returning the real file's `filePath`/`durationMs`/`sizeBytes`. This was
-    already flagged as a parked "do this when real capture lands" item in
-    sub-project 1's final review — this sub-project closes it.
-  - `SavedResult` moves from `state/recordingMachine.ts` to
-    `capture/types.ts` (it's a capture-produced value; `recordingMachine.ts`
-    imports it from there instead of defining it).
+  - `stop(): Promise<void>` becomes `stop(): Promise<CaptureResult>`, a new
+    `capture/types.ts` type `{ filePath: string; sizeBytes: number }` —
+    **not** the full `SavedResult` triple. `durationMs` deliberately stays
+    hook-computed from wall clock, exactly as sub-project 1 built it:
+    `FakeCapture` has no real duration of its own to report (there's no
+    file), and `AndroidPlaybackCapture`'s real duration would only
+    duplicate what wall-clock tracking already computes accurately for a
+    straightforward capture loop. The hook's `stopRecording` merges the
+    capture's `{filePath, sizeBytes}` with its own computed `durationMs`
+    into the `SavedResult` it passes to `finish()`. This closes sub-project
+    1's parked "stop() should return real file info" item, scoped to
+    exactly the two fields capture implementations actually own.
+  - `SavedResult` (`{filePath, durationMs, sizeBytes}`) stays exactly where
+    it is, in `state/recordingMachine.ts` — it was never capture's type to
+    own; only `CaptureResult` is new.
   - `FakeCapture` is updated to match: it computes its own synthetic level
     internally (the same RMS math the hook used to do) and calls `onLevel`
     on the same ~10Hz cadence, instead of handing raw frames outward.
@@ -218,12 +226,11 @@ keeps accepting an injected `AudioCapture` exactly as before.
 ## Testing strategy
 
 **JS side (fully runnable in this environment):**
-- `FakeCapture`'s tests updated for the `onLevel` shape instead of
-  `onFrame`.
-- `recordingMachine.ts`'s `SavedResult` relocation: existing tests updated
-  to import from the new location; behavior unchanged.
+- `FakeCapture`'s tests updated for the `onLevel` shape and `stop()`
+  returning `CaptureResult` instead of `onFrame`/`void`.
 - `useRecordingState`'s tests simplified (no more synthetic `Int16Array`
-  frames to emit) — mocks call `onLevel(value)` directly.
+  frames to emit) — mocks call `onLevel(value)` directly, and `stop()`
+  mocks return `{filePath, sizeBytes}` instead of nothing.
 - New tests for `AndroidPlaybackCapture`'s TS wrapper: mock the TurboModule
   and its event emitter (standard Jest/RN pattern — `jest.mock` on the
   generated native module and `NativeEventEmitter`), verifying it correctly
