@@ -61,6 +61,10 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       promise.reject("UNSUPPORTED", "System audio recording requires Android 10 or later")
       return
     }
+    if (pendingStartPromise != null || engine != null) {
+      promise.reject("ALREADY_STARTING", "A capture is already starting or in progress")
+      return
+    }
     val activity = reactContext.currentActivity
     if (activity == null) {
       promise.reject("NO_ACTIVITY", "No current activity to request capture permission from")
@@ -71,9 +75,19 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
   }
 
   private fun requestRecordAudioPermission(activity: Activity) {
-    if (ContextCompat.checkSelfPermission(reactContext, Manifest.permission.RECORD_AUDIO) ==
+    val permissionsNeeded = mutableListOf<String>()
+    if (ContextCompat.checkSelfPermission(reactContext, Manifest.permission.RECORD_AUDIO) !=
       PackageManager.PERMISSION_GRANTED
     ) {
+      permissionsNeeded.add(Manifest.permission.RECORD_AUDIO)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+      ContextCompat.checkSelfPermission(reactContext, Manifest.permission.POST_NOTIFICATIONS) !=
+        PackageManager.PERMISSION_GRANTED
+    ) {
+      permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    if (permissionsNeeded.isEmpty()) {
       requestProjection(activity)
       return
     }
@@ -83,18 +97,18 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       return
     }
     permissionAwareActivity.requestPermissions(
-      arrayOf(Manifest.permission.RECORD_AUDIO),
+      permissionsNeeded.toTypedArray(),
       RECORD_AUDIO_PERMISSION_REQUEST_CODE,
       PermissionListener { requestCode, _, grantResults ->
         if (requestCode != RECORD_AUDIO_PERMISSION_REQUEST_CODE) {
           return@PermissionListener false
         }
-        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
           requestProjection(activity)
         } else {
           failPendingStart(
             "PERMISSION_DENIED",
-            "Microphone permission (required by the system for playback capture) was denied",
+            "Required permissions for playback capture were denied",
           )
         }
         true
@@ -127,25 +141,33 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       return
     }
     mediaProjection = projection
-    AudioCaptureService.start(reactContext)
+    try {
+      AudioCaptureService.start(reactContext)
 
-    val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    val sampleRate =
-      audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull()
-        ?: DEFAULT_SAMPLE_RATE
+      val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+      val sampleRate =
+        audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull()
+          ?: DEFAULT_SAMPLE_RATE
 
-    val outputFile = File(reactContext.filesDir, TEMP_FILE_NAME)
-    val captureEngine =
-      AudioCaptureEngine(
-        mediaProjection = projection,
-        outputFile = outputFile,
-        onLevel = { level -> emitLevel(level) },
-      )
-    engine = captureEngine
-    captureEngine.start(sampleRate)
+      val outputFile = File(reactContext.filesDir, TEMP_FILE_NAME)
+      val captureEngine =
+        AudioCaptureEngine(
+          mediaProjection = projection,
+          outputFile = outputFile,
+          onLevel = { level -> emitLevel(level) },
+        )
+      engine = captureEngine
+      captureEngine.start(sampleRate)
 
-    pendingStartPromise?.resolve(null)
-    pendingStartPromise = null
+      pendingStartPromise?.resolve(null)
+      pendingStartPromise = null
+    } catch (e: Exception) {
+      engine = null
+      mediaProjection?.stop()
+      mediaProjection = null
+      AudioCaptureService.stop(reactContext)
+      failPendingStart("CAPTURE_START_FAILED", e.message ?: "Failed to start audio capture")
+    }
   }
 
   override fun onNewIntent(intent: Intent) {}
@@ -183,7 +205,10 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
 
     val tempFile = File(reactContext.filesDir, TEMP_FILE_NAME)
     val finalFile = File(reactContext.filesDir, "recording-${System.currentTimeMillis()}.pcm")
-    tempFile.renameTo(finalFile)
+    if (!tempFile.renameTo(finalFile)) {
+      promise.reject("RENAME_FAILED", "Could not finalize the recording file")
+      return
+    }
 
     val result = Arguments.createMap()
     result.putString("filePath", finalFile.absolutePath)

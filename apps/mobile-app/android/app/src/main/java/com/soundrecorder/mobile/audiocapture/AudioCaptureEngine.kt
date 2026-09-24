@@ -75,15 +75,19 @@ class AudioCaptureEngine(
         val buffer = ShortArray(bufferSizeInBytes / 2)
         var lastEmitAt = 0L
         while (running.get()) {
-          val readCount = record.read(buffer, 0, buffer.size)
-          if (readCount > 0 && !paused.get()) {
-            writeSamples(buffer, readCount)
+          try {
+            val readCount = record.read(buffer, 0, buffer.size)
+            if (readCount > 0 && !paused.get()) {
+              writeSamples(buffer, readCount)
 
-            val now = System.currentTimeMillis()
-            if (now - lastEmitAt >= LEVEL_EMIT_INTERVAL_MS) {
-              onLevel(computeLevel(buffer, readCount))
-              lastEmitAt = now
+              val now = System.currentTimeMillis()
+              if (now - lastEmitAt >= LEVEL_EMIT_INTERVAL_MS) {
+                onLevel(computeLevel(buffer, readCount))
+                lastEmitAt = now
+              }
             }
+          } catch (e: Exception) {
+            running.set(false)
           }
         }
       }
@@ -109,9 +113,9 @@ class AudioCaptureEngine(
 
   fun stop(): Long {
     running.set(false)
+    audioRecord?.stop()
     thread?.join(2000)
     thread = null
-    audioRecord?.stop()
     audioRecord?.release()
     audioRecord = null
     outputStream?.flush()
