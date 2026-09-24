@@ -1,6 +1,7 @@
 import { NativeEventEmitter } from "react-native"
 
 import NativeAudioCapture from "../specs/NativeAudioCapture"
+import type { Spec } from "../specs/NativeAudioCapture"
 import type { AudioCapture, AudioSource, CaptureResult } from "./types"
 
 const LEVEL_EVENT = "AudioCaptureLevel"
@@ -10,17 +11,28 @@ type AudioCaptureEvents = {
 }
 
 export class AndroidPlaybackCapture implements AudioCapture {
-  private emitter = new NativeEventEmitter<AudioCaptureEvents>(
-    NativeAudioCapture as unknown as ConstructorParameters<
-      typeof NativeEventEmitter
-    >[0]
-  )
+  private nativeModule: Spec
+  private emitter: NativeEventEmitter<AudioCaptureEvents>
   private subscription: { remove: () => void } | null = null
 
+  constructor() {
+    if (NativeAudioCapture == null) {
+      throw new Error(
+        "AudioCapture native module is not available on this platform"
+      )
+    }
+    this.nativeModule = NativeAudioCapture
+    this.emitter = new NativeEventEmitter<AudioCaptureEvents>(
+      this.nativeModule as unknown as ConstructorParameters<
+        typeof NativeEventEmitter
+      >[0]
+    )
+  }
+
   async listSources(): Promise<AudioSource[]> {
-    const supported = await NativeAudioCapture.isSupported()
+    const supported = await this.nativeModule.isSupported()
     if (!supported) return []
-    return NativeAudioCapture.listSources()
+    return this.nativeModule.listSources()
   }
 
   async start(
@@ -35,7 +47,7 @@ export class AndroidPlaybackCapture implements AudioCapture {
       }
     )
     try {
-      await NativeAudioCapture.startCapture(sourceId)
+      await this.nativeModule.startCapture(sourceId)
     } catch (err) {
       this.subscription?.remove()
       this.subscription = null
@@ -44,16 +56,16 @@ export class AndroidPlaybackCapture implements AudioCapture {
   }
 
   pause(): void {
-    NativeAudioCapture.pauseCapture()
+    this.nativeModule.pauseCapture()
   }
 
   resume(): void {
-    NativeAudioCapture.resumeCapture()
+    this.nativeModule.resumeCapture()
   }
 
   async stop(): Promise<CaptureResult> {
     this.subscription?.remove()
     this.subscription = null
-    return NativeAudioCapture.stopCapture()
+    return this.nativeModule.stopCapture()
   }
 }

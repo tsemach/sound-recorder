@@ -19,8 +19,15 @@ jest.mock("../specs/NativeAudioCapture", () => ({
   },
 }))
 
-import NativeAudioCapture from "../specs/NativeAudioCapture"
+import NativeAudioCaptureModule from "../specs/NativeAudioCapture"
 import { AndroidPlaybackCapture } from "./androidPlaybackCapture"
+
+// The mock above always provides a non-null default export; assert that
+// here so the tests can use it without repeating null-guards that only
+// matter for the real, possibly-absent (e.g. on iOS), TurboModule.
+const NativeAudioCapture = NativeAudioCaptureModule as NonNullable<
+  typeof NativeAudioCaptureModule
+>
 
 describe("AndroidPlaybackCapture", () => {
   afterEach(() => {

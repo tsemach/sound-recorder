@@ -12,4 +12,4 @@ export interface Spec extends TurboModule {
   removeListeners(count: number): void
 }
 
-export default TurboModuleRegistry.getEnforcing<Spec>("AudioCapture")
+export default TurboModuleRegistry.get<Spec>("AudioCapture")

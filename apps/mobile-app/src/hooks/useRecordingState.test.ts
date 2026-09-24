@@ -224,4 +224,21 @@ describe("useRecordingState", () => {
     })
     expect(result.current.error).toBe("device busy")
   })
+
+  it("falls back to FakeCapture on a non-Android platform when no capture is given", async () => {
+    // This test environment's Platform.OS defaults to "ios" (see
+    // @react-native/jest-preset's haste.defaultPlatform), so rendering the
+    // hook with no capture prop exercises the non-Android branch of the
+    // fallback in useRecordingState. Asserting on FakeCapture's two known
+    // source ids is sufficient proof it picked FakeCapture over
+    // AndroidPlaybackCapture, without needing to mock Platform.OS directly.
+    const { result } = renderHook(() => useRecordingState())
+
+    await waitFor(() =>
+      expect(result.current.sources).toEqual([
+        { id: "fake-system-audio", name: "Fake System Audio" },
+        { id: "fake-microphone", name: "Fake Microphone" },
+      ])
+    )
+  })
 })
