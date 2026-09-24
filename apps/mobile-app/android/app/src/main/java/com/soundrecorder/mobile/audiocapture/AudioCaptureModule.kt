@@ -16,13 +16,29 @@ import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.modules.core.PermissionListener
 import java.io.File
 
+// Registered as a legacy (non-TurboModule) native module, not a codegen'd
+// TurboModule spec. RN 0.87.1's New Architecture Java-Spec TurboModule
+// interop (DefaultTurboModuleManagerDelegate's javaModuleProvider ->
+// TurboModuleRegistry.get()) was confirmed via on-device testing + logging
+// to construct this module successfully on the native side, but never
+// exposed it to JS (TurboModuleRegistry.get("AudioCapture") returned null
+// every time despite the native constructor log firing). Traced the failure
+// through ReactModuleInfo, DefaultReactHost, ReactPackageTurboModuleManagerDelegate,
+// ReactInstance, and DefaultTurboModuleManagerDelegate's C++ implementation
+// without finding a definitive root cause short of native (JNI) debugging
+// tools not available in this environment. The legacy bridge path (still a
+// first-class, fully-supported mechanism in Bridgeless RN, since most
+// third-party libraries haven't migrated to TurboModules either) works
+// correctly and sidesteps that interop layer entirely.
 class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
-  NativeAudioCaptureSpec(reactContext),
+  ReactContextBaseJavaModule(reactContext),
   ActivityEventListener {
 
   companion object {
@@ -33,6 +49,8 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     private const val TEMP_FILE_NAME = "recording.pcm.tmp"
   }
 
+  override fun getName(): String = NAME
+
   init {
     reactContext.addActivityEventListener(this)
   }
@@ -41,11 +59,13 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
   private var mediaProjection: MediaProjection? = null
   private var engine: AudioCaptureEngine? = null
 
-  override fun isSupported(promise: Promise) {
+  @ReactMethod
+  fun isSupported(promise: Promise) {
     promise.resolve(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
   }
 
-  override fun listSources(promise: Promise) {
+  @ReactMethod
+  fun listSources(promise: Promise) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
       promise.resolve(Arguments.createArray())
       return
@@ -58,7 +78,8 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     promise.resolve(sources)
   }
 
-  override fun startCapture(sourceId: String, promise: Promise) {
+  @ReactMethod
+  fun startCapture(sourceId: String, promise: Promise) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
       promise.reject("UNSUPPORTED", "System audio recording requires Android 10 or later")
       return
@@ -145,17 +166,38 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       failPendingStart("CAPTURE_DENIED", "System audio capture permission was denied")
       return
     }
+    // The service must actually call startForeground() before
+    // MediaProjectionManager.getMediaProjection() is safe to call (confirmed on-device:
+    // it throws SecurityException otherwise) — so the service owns obtaining the
+    // projection, in onStartCommand(), right after startForeground(), and reports back
+    // here via this callback rather than us calling getMediaProjection() ourselves.
+    AudioCaptureService.callback =
+      object : AudioCaptureService.Companion.Callback {
+        @RequiresApi(Build.VERSION_CODES.Q)
+        @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+        override fun onForegroundReady(resultCode: Int, data: Intent) {
+          startEngineNowThatForegroundIsConfirmed(resultCode, data)
+        }
+      }
+    AudioCaptureService.start(reactContext, resultCode, data)
+  }
+
+  // Only ever invoked from AudioCaptureService's callback, itself only reachable
+  // from onActivityResult()'s guarded flow (SDK_INT >= Q, RECORD_AUDIO granted) —
+  // lint can't trace either guarantee through the service/callback indirection.
+  @RequiresApi(Build.VERSION_CODES.Q)
+  @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+  private fun startEngineNowThatForegroundIsConfirmed(resultCode: Int, data: Intent) {
     val manager =
       reactContext.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
     val projection = manager.getMediaProjection(resultCode, data)
     if (projection == null) {
       failPendingStart("CAPTURE_FAILED", "Could not obtain media projection")
+      AudioCaptureService.stop(reactContext)
       return
     }
     mediaProjection = projection
     try {
-      AudioCaptureService.start(reactContext)
-
       val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
       val sampleRate =
         audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull()
@@ -198,18 +240,21 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
 
   // A non-null engine only ever exists after onActivityResult constructed it
   // under SDK_INT >= Q; lint can't see that invariant across fields.
+  @ReactMethod
   @RequiresApi(Build.VERSION_CODES.Q)
-  override fun pauseCapture() {
+  fun pauseCapture() {
     engine?.pause()
   }
 
+  @ReactMethod
   @RequiresApi(Build.VERSION_CODES.Q)
-  override fun resumeCapture() {
+  fun resumeCapture() {
     engine?.resume()
   }
 
+  @ReactMethod
   @RequiresApi(Build.VERSION_CODES.Q)
-  override fun stopCapture(promise: Promise) {
+  fun stopCapture(promise: Promise) {
     val captureEngine = engine
     if (captureEngine == null) {
       promise.reject("NOT_RECORDING", "No active capture to stop")
@@ -244,7 +289,9 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     promise.resolve(result)
   }
 
-  override fun addListener(eventName: String) {}
+  @ReactMethod
+  fun addListener(eventName: String) {}
 
-  override fun removeListeners(count: Double) {}
+  @ReactMethod
+  fun removeListeners(count: Double) {}
 }
