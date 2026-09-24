@@ -153,9 +153,12 @@ and the `AudioCaptureService` declaration with
 AudioCaptureModule.kt  — TurboModule: isSupported(), listSources(),
                          startCapture(sourceId), pauseCapture(),
                          resumeCapture(), stopCapture()
-AudioCaptureService.kt — foreground service owning the MediaProjection +
-                         AudioRecord read loop; writes raw PCM16 to a temp
-                         file; computes and emits a level value periodically
+AudioCaptureService.kt — foreground service that only manages the
+                         "recording in progress" notification (required for
+                         MediaProjection to keep running in the background);
+                         AudioCaptureModule owns the MediaProjection and
+                         AudioCaptureEngine (read loop, temp-file writes,
+                         level computation) directly
 AudioCapturePackage.kt — registers the module with React Native
 ```
 
@@ -191,8 +194,9 @@ and per buffer:
   stay alive across pause/resume; only file writes are skipped).
 
 `stopCapture()` stops the read loop, closes the file, renames it to a
-timestamped final name in `filesDir`, and returns
-`{ filePath, durationMs, sizeBytes }`. This rename is a plain
+timestamped final name in `filesDir`, and returns `{ filePath, sizeBytes }`
+(matching `CaptureResult` — `durationMs` is intentionally not part of it,
+per the "narrow CaptureResult" correction above). This rename is a plain
 `File.renameTo()` — **not** the PRD's crash-safe atomic-write requirement,
 which needs real incremental WAV writing to implement meaningfully and is
 deferred to the next sub-project along with the container format itself.
