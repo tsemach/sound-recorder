@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { Platform } from "react-native"
 
 import type { AudioCapture, AudioSource } from "../capture/types"
+import { AndroidPlaybackCapture } from "../capture/androidPlaybackCapture"
 import { FakeCapture } from "../capture/fakeCapture"
 import { errorMessage } from "../lib/errorMessage"
 import {
@@ -19,20 +21,11 @@ import {
 
 const TICK_MS = 100
 
-function computeLevel(frame: Int16Array): number {
-  if (frame.length === 0) return 0
-  let sumSquares = 0
-  for (let i = 0; i < frame.length; i++) {
-    const normalized = frame[i] / 32768
-    sumSquares += normalized * normalized
-  }
-  return Math.sqrt(sumSquares / frame.length)
-}
-
 export function useRecordingState(capture?: AudioCapture) {
   const fallbackRef = useRef<AudioCapture | null>(null)
   if (fallbackRef.current === null) {
-    fallbackRef.current = new FakeCapture()
+    fallbackRef.current =
+      Platform.OS === "android" ? new AndroidPlaybackCapture() : new FakeCapture()
   }
   const activeCapture = capture ?? fallbackRef.current
 
@@ -45,7 +38,6 @@ export function useRecordingState(capture?: AudioCapture) {
   const startedAtRef = useRef(0)
   const pausedAccumRef = useRef(0)
   const pausedAtRef = useRef(0)
-  const latestFrameRef = useRef<Int16Array | null>(null)
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const applyState = useCallback((next: RecordingState) => {
@@ -93,16 +85,13 @@ export function useRecordingState(capture?: AudioCapture) {
       const elapsedMs =
         Date.now() - startedAtRef.current - pausedAccumRef.current
       applyState(updateElapsed(stateRef.current, elapsedMs))
-      setLevel(
-        latestFrameRef.current ? computeLevel(latestFrameRef.current) : 0
-      )
     }, TICK_MS)
   }, [applyState, stopTickLoop])
 
   useEffect(() => {
     return () => {
       stopTickLoop()
-      void activeCapture.stop()
+      void activeCapture.stop().catch(() => {})
     }
     // Empty deps: this must run only on actual unmount, not whenever
     // activeCapture/stopTickLoop identity changes. activeCapture is stable
@@ -118,9 +107,8 @@ export function useRecordingState(capture?: AudioCapture) {
         const source = sources.find((candidate) => candidate.id === sourceId)
         const sourceName = source?.name ?? sourceId
         applyState(prepare(stateRef.current))
-        latestFrameRef.current = null
-        await activeCapture.start(sourceId, (frame) => {
-          latestFrameRef.current = frame
+        await activeCapture.start(sourceId, (nextLevel) => {
+          setLevel(nextLevel)
         })
         startedAtRef.current = Date.now()
         pausedAccumRef.current = 0
@@ -174,16 +162,10 @@ export function useRecordingState(capture?: AudioCapture) {
       }
       applyState(stop(stateRef.current))
       stopTickLoop()
-      await activeCapture.stop()
+      const { filePath, sizeBytes } = await activeCapture.stop()
       const durationMs =
         Date.now() - startedAtRef.current - pausedAccumRef.current
-      applyState(
-        finish(stateRef.current, {
-          filePath: `fake/recording-${Date.now()}.wav`,
-          durationMs,
-          sizeBytes: 0,
-        })
-      )
+      applyState(finish(stateRef.current, { filePath, durationMs, sizeBytes }))
     } catch (err) {
       handleFailure(err)
     }
