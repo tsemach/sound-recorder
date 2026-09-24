@@ -9,6 +9,8 @@ import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
@@ -122,6 +124,13 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     activity.startActivityForResult(manager.createScreenCaptureIntent(), PROJECTION_REQUEST_CODE)
   }
 
+  // Reached only via the projection-request flow kicked off from
+  // startCapture(), which already rejected on SDK_INT < Q and only requests
+  // the projection intent after RECORD_AUDIO was confirmed granted; lint
+  // can't trace either guarantee across the Activity result callback, so
+  // both are made explicit here.
+  @RequiresApi(Build.VERSION_CODES.Q)
+  @RequiresPermission(Manifest.permission.RECORD_AUDIO)
   override fun onActivityResult(
     activity: Activity,
     requestCode: Int,
@@ -184,14 +193,19 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       .emit("AudioCaptureLevel", level.toDouble())
   }
 
+  // A non-null engine only ever exists after onActivityResult constructed it
+  // under SDK_INT >= Q; lint can't see that invariant across fields.
+  @RequiresApi(Build.VERSION_CODES.Q)
   override fun pauseCapture() {
     engine?.pause()
   }
 
+  @RequiresApi(Build.VERSION_CODES.Q)
   override fun resumeCapture() {
     engine?.resume()
   }
 
+  @RequiresApi(Build.VERSION_CODES.Q)
   override fun stopCapture(promise: Promise) {
     val captureEngine = engine
     if (captureEngine == null) {

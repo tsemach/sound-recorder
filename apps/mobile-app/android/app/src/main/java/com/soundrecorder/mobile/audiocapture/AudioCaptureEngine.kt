@@ -1,10 +1,14 @@
 package com.soundrecorder.mobile.audiocapture
 
+import android.Manifest
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.projection.MediaProjection
+import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.annotation.RequiresPermission
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
@@ -12,6 +16,7 @@ import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 
+@RequiresApi(Build.VERSION_CODES.Q)
 class AudioCaptureEngine(
   private val mediaProjection: MediaProjection,
   private val outputFile: File,
@@ -37,6 +42,7 @@ class AudioCaptureEngine(
   private val running = AtomicBoolean(false)
   private val paused = AtomicBoolean(false)
 
+  @RequiresPermission(Manifest.permission.RECORD_AUDIO)
   fun start(sampleRate: Int) {
     val captureConfig =
       AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
