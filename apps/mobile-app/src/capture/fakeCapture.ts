@@ -1,8 +1,18 @@
-import type { AudioCapture, AudioSource } from "./types"
+import type { AudioCapture, AudioSource, CaptureResult } from "./types"
 
 const SAMPLE_RATE = 48000
 const BUFFER_MS = 20
 const FREQUENCY_HZ = 440
+
+function computeLevel(buffer: Int16Array): number {
+  if (buffer.length === 0) return 0
+  let sumSquares = 0
+  for (let i = 0; i < buffer.length; i++) {
+    const normalized = buffer[i] / 32768
+    sumSquares += normalized * normalized
+  }
+  return Math.sqrt(sumSquares / buffer.length)
+}
 
 export class FakeCapture implements AudioCapture {
   private intervalId: ReturnType<typeof setInterval> | null = null
@@ -18,7 +28,7 @@ export class FakeCapture implements AudioCapture {
 
   async start(
     _sourceId: string,
-    onFrame: (frame: Int16Array) => void
+    onLevel: (level: number) => void
   ): Promise<void> {
     if (this.intervalId !== null) {
       throw new Error("FakeCapture.start() called while already running")
@@ -34,7 +44,7 @@ export class FakeCapture implements AudioCapture {
         buffer[i] = Math.round(Math.sin(this.phase) * 0.2 * 32767)
         this.phase += (2 * Math.PI * FREQUENCY_HZ) / SAMPLE_RATE
       }
-      onFrame(buffer)
+      onLevel(computeLevel(buffer))
     }, BUFFER_MS)
   }
 
@@ -46,10 +56,11 @@ export class FakeCapture implements AudioCapture {
     this.paused = false
   }
 
-  async stop(): Promise<void> {
+  async stop(): Promise<CaptureResult> {
     if (this.intervalId !== null) {
       clearInterval(this.intervalId)
       this.intervalId = null
     }
+    return { filePath: `fake/recording-${Date.now()}.wav`, sizeBytes: 0 }
   }
 }

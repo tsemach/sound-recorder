@@ -1,26 +1,27 @@
 import { act, renderHook, waitFor } from "@testing-library/react-native"
 
-import type { AudioCapture, AudioSource } from "../capture/types"
+import type { AudioCapture, AudioSource, CaptureResult } from "../capture/types"
 import { useRecordingState } from "./useRecordingState"
 
 function makeMockCapture(sources: AudioSource[]): AudioCapture & {
-  emitFrame: (frame: Int16Array) => void
+  emitLevel: (level: number) => void
 } {
-  let onFrame: ((frame: Int16Array) => void) | null = null
+  let onLevel: ((level: number) => void) | null = null
   return {
     listSources: jest.fn(async () => sources),
-    start: jest.fn(
-      async (_sourceId: string, cb: (frame: Int16Array) => void) => {
-        onFrame = cb
-      }
-    ),
+    start: jest.fn(async (_sourceId: string, cb: (level: number) => void) => {
+      onLevel = cb
+    }),
     pause: jest.fn(),
     resume: jest.fn(),
-    stop: jest.fn(async () => {
-      onFrame = null
-    }),
-    emitFrame(frame: Int16Array) {
-      onFrame?.(frame)
+    stop: jest.fn(
+      async (): Promise<CaptureResult> => {
+        onLevel = null
+        return { filePath: "mock/recording.wav", sizeBytes: 1024 }
+      }
+    ),
+    emitLevel(level: number) {
+      onLevel?.(level)
     },
   }
 }
@@ -57,7 +58,7 @@ describe("useRecordingState", () => {
     })
   })
 
-  it("updates elapsedMs and level from the tick loop while recording", async () => {
+  it("updates elapsedMs from the tick loop and level directly from onLevel", async () => {
     const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
     const { result } = renderHook(() => useRecordingState(capture))
     await waitFor(() => expect(result.current.sources).toHaveLength(1))
@@ -67,12 +68,14 @@ describe("useRecordingState", () => {
     })
 
     act(() => {
-      capture.emitFrame(new Int16Array([32767, -32768, 0, 0]))
+      capture.emitLevel(0.8)
+    })
+    expect(result.current.level).toBe(0.8)
+
+    act(() => {
       jest.advanceTimersByTime(100)
     })
-
     expect(result.current.elapsedMs).toBeGreaterThanOrEqual(100)
-    expect(result.current.level).toBeGreaterThan(0)
   })
 
   it("rejects pauseRecording while Idle without changing state", async () => {
@@ -88,7 +91,7 @@ describe("useRecordingState", () => {
     expect(result.current.state).toEqual({ state: "Idle" })
   })
 
-  it("stopRecording moves Recording to Saved", async () => {
+  it("stopRecording moves Recording to Saved using the capture's result", async () => {
     const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
     const { result } = renderHook(() => useRecordingState(capture))
     await waitFor(() => expect(result.current.sources).toHaveLength(1))
@@ -101,7 +104,12 @@ describe("useRecordingState", () => {
       await result.current.stopRecording()
     })
 
-    expect(result.current.state.state).toBe("Saved")
+    const state = result.current.state
+    expect(state.state).toBe("Saved")
+    if (state.state === "Saved") {
+      expect(state.filePath).toBe("mock/recording.wav")
+      expect(state.sizeBytes).toBe(1024)
+    }
   })
 
   it("cancelRecording discards and returns to Idle", async () => {
@@ -176,11 +184,9 @@ describe("useRecordingState", () => {
     })
 
     act(() => {
-      capture.emitFrame(new Int16Array([32767, -32768, 0, 0]))
-      jest.advanceTimersByTime(100)
+      capture.emitLevel(0.8)
     })
-
-    expect(result.current.level).toBeGreaterThan(0)
+    expect(result.current.level).toBe(0.8)
 
     act(() => {
       result.current.pauseRecording()

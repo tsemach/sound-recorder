@@ -18,7 +18,7 @@ function makeMockCapture(sources: AudioSource[]): AudioCapture {
     start: jest.fn(async () => {}),
     pause: jest.fn(),
     resume: jest.fn(),
-    stop: jest.fn(async () => {}),
+    stop: jest.fn(async () => ({ filePath: "mock/recording.wav", sizeBytes: 1024 })),
   }
 }
 
@@ -107,7 +107,7 @@ describe("MainScreen", () => {
       start: jest.fn(async () => {}),
       pause: jest.fn(),
       resume: jest.fn(),
-      stop: jest.fn(async () => {}),
+      stop: jest.fn(async () => ({ filePath: "mock/recording.wav", sizeBytes: 1024 })),
     }
 
     render(<MainScreen capture={capture} />)

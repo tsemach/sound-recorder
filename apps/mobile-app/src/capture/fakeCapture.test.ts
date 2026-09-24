@@ -18,61 +18,61 @@ describe("FakeCapture", () => {
     ])
   })
 
-  it("produces frames roughly every 20ms while running", async () => {
+  it("reports levels roughly every 20ms while running", async () => {
     const capture = new FakeCapture()
-    const frames: Int16Array[] = []
-    await capture.start("fake-system-audio", (frame) => frames.push(frame))
+    const levels: number[] = []
+    await capture.start("fake-system-audio", (level) => levels.push(level))
 
     jest.advanceTimersByTime(100)
 
-    expect(frames.length).toBeGreaterThanOrEqual(4)
-    expect(frames[0].length).toBeGreaterThan(0)
+    expect(levels.length).toBeGreaterThanOrEqual(4)
+    expect(levels[0]).toBeGreaterThan(0)
 
     await capture.stop()
   })
 
-  it("stops producing frames while paused", async () => {
+  it("stops reporting levels while paused", async () => {
     const capture = new FakeCapture()
-    const frames: Int16Array[] = []
-    await capture.start("fake-system-audio", (frame) => frames.push(frame))
+    const levels: number[] = []
+    await capture.start("fake-system-audio", (level) => levels.push(level))
 
     jest.advanceTimersByTime(40)
     capture.pause()
-    const countAtPause = frames.length
+    const countAtPause = levels.length
 
     jest.advanceTimersByTime(100)
-    expect(frames.length).toBe(countAtPause)
+    expect(levels.length).toBe(countAtPause)
 
     await capture.stop()
   })
 
-  it("resumes producing frames after resume", async () => {
+  it("resumes reporting levels after resume", async () => {
     const capture = new FakeCapture()
-    const frames: Int16Array[] = []
-    await capture.start("fake-system-audio", (frame) => frames.push(frame))
+    const levels: number[] = []
+    await capture.start("fake-system-audio", (level) => levels.push(level))
 
     jest.advanceTimersByTime(40)
     capture.pause()
-    const countAtPause = frames.length
+    const countAtPause = levels.length
     capture.resume()
     jest.advanceTimersByTime(100)
 
-    expect(frames.length).toBeGreaterThan(countAtPause)
+    expect(levels.length).toBeGreaterThan(countAtPause)
 
     await capture.stop()
   })
 
-  it("stops producing frames entirely after stop", async () => {
+  it("stops reporting levels entirely after stop", async () => {
     const capture = new FakeCapture()
-    const frames: Int16Array[] = []
-    await capture.start("fake-system-audio", (frame) => frames.push(frame))
+    const levels: number[] = []
+    await capture.start("fake-system-audio", (level) => levels.push(level))
 
     jest.advanceTimersByTime(40)
     await capture.stop()
-    const countAtStop = frames.length
+    const countAtStop = levels.length
 
     jest.advanceTimersByTime(100)
-    expect(frames.length).toBe(countAtStop)
+    expect(levels.length).toBe(countAtStop)
   })
 
   it("throws if start() is called again while already running", async () => {
@@ -84,5 +84,15 @@ describe("FakeCapture", () => {
     )
 
     await capture.stop()
+  })
+
+  it("resolves stop() with a fake file path and zero size", async () => {
+    const capture = new FakeCapture()
+    await capture.start("fake-system-audio", () => {})
+
+    const result = await capture.stop()
+
+    expect(result.filePath).toMatch(/^fake\/recording-\d+\.wav$/)
+    expect(result.sizeBytes).toBe(0)
   })
 })
