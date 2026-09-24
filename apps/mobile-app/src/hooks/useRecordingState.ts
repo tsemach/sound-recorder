@@ -91,7 +91,7 @@ export function useRecordingState(capture?: AudioCapture) {
   useEffect(() => {
     return () => {
       stopTickLoop()
-      void activeCapture.stop()
+      void activeCapture.stop().catch(() => {})
     }
     // Empty deps: this must run only on actual unmount, not whenever
     // activeCapture/stopTickLoop identity changes. activeCapture is stable
@@ -107,8 +107,8 @@ export function useRecordingState(capture?: AudioCapture) {
         const source = sources.find((candidate) => candidate.id === sourceId)
         const sourceName = source?.name ?? sourceId
         applyState(prepare(stateRef.current))
-        await activeCapture.start(sourceId, (level) => {
-          setLevel(level)
+        await activeCapture.start(sourceId, (nextLevel) => {
+          setLevel(nextLevel)
         })
         startedAtRef.current = Date.now()
         pausedAccumRef.current = 0

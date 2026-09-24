@@ -138,6 +138,9 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     data: Intent?,
   ) {
     if (requestCode != PROJECTION_REQUEST_CODE) return
+    if (pendingStartPromise == null) {
+      return
+    }
     if (resultCode != Activity.RESULT_OK || data == null) {
       failPendingStart("CAPTURE_DENIED", "System audio capture permission was denied")
       return

@@ -55,7 +55,7 @@ export function MainScreen({ capture }: MainScreenProps = {}) {
         </View>
       )}
 
-      {canStart && sources.length === 0 && (
+      {canStart && sources.length === 0 && !error && (
         <Text style={styles.unavailable}>
           No recording source available. System audio recording requires
           Android 10 or later.
