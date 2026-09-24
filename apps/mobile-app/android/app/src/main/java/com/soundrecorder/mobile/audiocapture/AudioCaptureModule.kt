@@ -162,6 +162,7 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       pendingStartPromise?.resolve(null)
       pendingStartPromise = null
     } catch (e: Exception) {
+      engine?.stop()
       engine = null
       mediaProjection?.stop()
       mediaProjection = null
