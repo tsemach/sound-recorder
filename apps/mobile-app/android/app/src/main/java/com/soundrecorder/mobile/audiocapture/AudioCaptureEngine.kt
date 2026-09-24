@@ -93,6 +93,7 @@ class AudioCaptureEngine(
               }
             }
           } catch (e: Exception) {
+            android.util.Log.e("AudioCaptureEngine", "capture read loop failed", e)
             running.set(false)
           }
         }

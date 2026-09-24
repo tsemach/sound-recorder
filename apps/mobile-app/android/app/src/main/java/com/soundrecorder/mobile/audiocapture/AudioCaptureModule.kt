@@ -212,7 +212,17 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       promise.reject("NOT_RECORDING", "No active capture to stop")
       return
     }
-    val sizeBytes = captureEngine.stop()
+    val sizeBytes: Long
+    try {
+      sizeBytes = captureEngine.stop()
+    } catch (e: Exception) {
+      engine = null
+      mediaProjection?.stop()
+      mediaProjection = null
+      AudioCaptureService.stop(reactContext)
+      promise.reject("STOP_FAILED", e.message ?: "Failed to stop audio capture")
+      return
+    }
     engine = null
     mediaProjection?.stop()
     mediaProjection = null
