@@ -12,4 +12,13 @@ export interface Spec extends TurboModule {
   removeListeners(count: number): void
 }
 
-export default TurboModuleRegistry.get<Spec>("AudioCapture")
+// Deliberately NOT resolved at module scope (e.g. `TurboModuleRegistry.get(...)`
+// evaluated as a top-level export). In React Native's Bridgeless architecture,
+// JS module evaluation can happen before the native TurboModule registry has
+// finished registering packages on cold start, which would permanently bake in
+// a `null` result for any code that only reads a top-level singleton. Calling
+// this function lazily, at the point a caller actually needs the module (well
+// after the JS bundle has loaded and rendering has begun), avoids that race.
+export function getAudioCaptureNativeModule(): Spec | null {
+  return TurboModuleRegistry.get<Spec>("AudioCapture") ?? null
+}
