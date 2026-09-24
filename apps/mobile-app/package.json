@@ -42,5 +42,13 @@
   },
   "engines": {
     "node": ">= 22.11.0"
+  },
+  "codegenConfig": {
+    "name": "AudioCaptureSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/specs",
+    "android": {
+      "javaPackageName": "com.soundrecorder.mobile.audiocapture"
+    }
   }
 }
