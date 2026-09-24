@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { Platform } from "react-native"
 
 import type { AudioCapture, AudioSource } from "../capture/types"
+import { AndroidPlaybackCapture } from "../capture/androidPlaybackCapture"
 import { FakeCapture } from "../capture/fakeCapture"
 import { errorMessage } from "../lib/errorMessage"
 import {
@@ -22,7 +24,8 @@ const TICK_MS = 100
 export function useRecordingState(capture?: AudioCapture) {
   const fallbackRef = useRef<AudioCapture | null>(null)
   if (fallbackRef.current === null) {
-    fallbackRef.current = new FakeCapture()
+    fallbackRef.current =
+      Platform.OS === "android" ? new AndroidPlaybackCapture() : new FakeCapture()
   }
   const activeCapture = capture ?? fallbackRef.current
 

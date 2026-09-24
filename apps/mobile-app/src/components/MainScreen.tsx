@@ -55,6 +55,13 @@ export function MainScreen({ capture }: MainScreenProps = {}) {
         </View>
       )}
 
+      {canStart && sources.length === 0 && (
+        <Text style={styles.unavailable}>
+          No recording source available. System audio recording requires
+          Android 10 or later.
+        </Text>
+      )}
+
       {canStart && sources.length > 0 && (
         <View style={styles.sourceRow}>
           {sources.map((source) => (
@@ -156,6 +163,7 @@ const styles = StyleSheet.create({
   levelFill: { height: 8, backgroundColor: "#2563eb" },
   saving: { color: "#6b7280" },
   saved: { color: "#16a34a" },
+  unavailable: { color: "#6b7280" },
   buttonRow: { flexDirection: "row", gap: 8 },
   button: {
     backgroundColor: "#2563eb",

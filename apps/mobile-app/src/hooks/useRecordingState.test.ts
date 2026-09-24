@@ -3,6 +3,16 @@ import { act, renderHook, waitFor } from "@testing-library/react-native"
 import type { AudioCapture, AudioSource, CaptureResult } from "../capture/types"
 import { useRecordingState } from "./useRecordingState"
 
+// Mock the native AudioCapture module so tests don't try to load the TurboModule
+jest.mock("../specs/NativeAudioCapture", () => ({
+  isSupported: jest.fn(async () => false),
+  listSources: jest.fn(async () => []),
+  startCapture: jest.fn(async () => {}),
+  pauseCapture: jest.fn(),
+  resumeCapture: jest.fn(),
+  stopCapture: jest.fn(async () => ({ filePath: "", sizeBytes: 0 })),
+}))
+
 function makeMockCapture(sources: AudioSource[]): AudioCapture & {
   emitLevel: (level: number) => void
 } {

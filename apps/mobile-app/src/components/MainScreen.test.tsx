@@ -12,6 +12,16 @@ import type { AudioCapture, AudioSource } from "../capture/types"
 import { FakeCapture } from "../capture/fakeCapture"
 import { MainScreen } from "./MainScreen"
 
+// Mock the native AudioCapture module so tests don't try to load the TurboModule
+jest.mock("../specs/NativeAudioCapture", () => ({
+  isSupported: jest.fn(async () => false),
+  listSources: jest.fn(async () => []),
+  startCapture: jest.fn(async () => {}),
+  pauseCapture: jest.fn(),
+  resumeCapture: jest.fn(),
+  stopCapture: jest.fn(async () => ({ filePath: "", sizeBytes: 0 })),
+}))
+
 function makeMockCapture(sources: AudioSource[]): AudioCapture {
   return {
     listSources: jest.fn(async () => sources),
@@ -129,5 +139,17 @@ describe("MainScreen", () => {
     expect(listSourcesSpy).toHaveBeenCalledTimes(1)
 
     listSourcesSpy.mockRestore()
+  })
+
+  it("shows an explanatory message when no sources are available", async () => {
+    const capture = makeMockCapture([])
+    render(<MainScreen capture={capture} />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/System audio recording requires Android 10 or later/)
+      ).toBeTruthy()
+    )
+    expect(screen.queryByText("Record")).toBeNull()
   })
 })
