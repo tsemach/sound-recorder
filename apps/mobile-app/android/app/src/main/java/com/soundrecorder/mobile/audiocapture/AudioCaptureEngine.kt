@@ -71,7 +71,9 @@ class AudioCaptureEngine(
         .build()
 
     audioRecord = record
-    outputStream = FileOutputStream(outputFile)
+    val stream = FileOutputStream(outputFile)
+    stream.write(WavHeader.placeholderBytes(sampleRate))
+    outputStream = stream
     running.set(true)
     paused.set(false)
     record.startRecording()
@@ -119,6 +121,18 @@ class AudioCaptureEngine(
   }
 
   fun stop(): Long {
+    teardownRecording()
+    val totalSize = outputFile.length()
+    WavHeader.patchSizes(outputFile, totalSize)
+    return totalSize
+  }
+
+  fun discardAndDelete() {
+    teardownRecording()
+    outputFile.delete()
+  }
+
+  private fun teardownRecording() {
     running.set(false)
     audioRecord?.stop()
     thread?.join(2000)
@@ -128,6 +142,5 @@ class AudioCaptureEngine(
     outputStream?.flush()
     outputStream?.close()
     outputStream = null
-    return outputFile.length()
   }
 }
