@@ -12,6 +12,7 @@ jest.mock("../specs/NativeAudioCapture", () => ({
     pauseCapture: jest.fn(),
     resumeCapture: jest.fn(),
     stopCapture: jest.fn(async () => ({ filePath: "", sizeBytes: 0 })),
+    discardCapture: jest.fn(async () => undefined),
   }),
 }))
 
@@ -32,6 +33,9 @@ function makeMockCapture(sources: AudioSource[]): AudioCapture & {
         return { filePath: "mock/recording.wav", sizeBytes: 1024 }
       }
     ),
+    discard: jest.fn(async () => {
+      onLevel = null
+    }),
     emitLevel(level: number) {
       onLevel?.(level)
     },
@@ -138,6 +142,8 @@ describe("useRecordingState", () => {
     })
 
     expect(result.current.state).toEqual({ state: "Idle" })
+    expect(capture.discard).toHaveBeenCalled()
+    expect(capture.stop).not.toHaveBeenCalled()
   })
 
   it("does not include time spent paused in durationMs when stopping while paused", async () => {

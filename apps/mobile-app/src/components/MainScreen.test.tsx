@@ -21,6 +21,7 @@ jest.mock("../specs/NativeAudioCapture", () => ({
     pauseCapture: jest.fn(),
     resumeCapture: jest.fn(),
     stopCapture: jest.fn(async () => ({ filePath: "", sizeBytes: 0 })),
+    discardCapture: jest.fn(async () => undefined),
   }),
 }))
 
@@ -31,6 +32,7 @@ function makeMockCapture(sources: AudioSource[]): AudioCapture {
     pause: jest.fn(),
     resume: jest.fn(),
     stop: jest.fn(async () => ({ filePath: "mock/recording.wav", sizeBytes: 1024 })),
+    discard: jest.fn(async () => {}),
   }
 }
 
@@ -78,6 +80,8 @@ describe("MainScreen", () => {
     await discardButton?.onPress?.()
 
     await waitFor(() => expect(screen.getByText("Record")).toBeTruthy())
+    expect(capture.discard).toHaveBeenCalled()
+    expect(capture.stop).not.toHaveBeenCalled()
   })
 
   it("shows a saved confirmation after stopping", async () => {
@@ -120,6 +124,7 @@ describe("MainScreen", () => {
       pause: jest.fn(),
       resume: jest.fn(),
       stop: jest.fn(async () => ({ filePath: "mock/recording.wav", sizeBytes: 1024 })),
+      discard: jest.fn(async () => {}),
     }
 
     render(<MainScreen capture={capture} />)

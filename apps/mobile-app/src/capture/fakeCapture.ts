@@ -63,4 +63,11 @@ export class FakeCapture implements AudioCapture {
     }
     return { filePath: `fake/recording-${Date.now()}.wav`, sizeBytes: 0 }
   }
+
+  async discard(): Promise<void> {
+    if (this.intervalId !== null) {
+      clearInterval(this.intervalId)
+      this.intervalId = null
+    }
+  }
 }

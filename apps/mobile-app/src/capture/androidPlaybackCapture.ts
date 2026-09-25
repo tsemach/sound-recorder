@@ -69,4 +69,10 @@ export class AndroidPlaybackCapture implements AudioCapture {
     this.subscription = null
     return this.nativeModule.stopCapture()
   }
+
+  async discard(): Promise<void> {
+    this.subscription?.remove()
+    this.subscription = null
+    await this.nativeModule.discardCapture()
+  }
 }

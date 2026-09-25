@@ -176,7 +176,7 @@ export function useRecordingState(capture?: AudioCapture) {
     try {
       applyState(cancel(stateRef.current))
       stopTickLoop()
-      await activeCapture.stop()
+      await activeCapture.discard()
     } catch (err) {
       handleFailure(err)
     }

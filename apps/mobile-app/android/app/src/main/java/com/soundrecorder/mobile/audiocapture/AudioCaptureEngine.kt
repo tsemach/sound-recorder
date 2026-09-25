@@ -51,7 +51,8 @@ class AudioCaptureEngine(
         .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
         .build()
 
-    val channelMask = AudioFormat.CHANNEL_IN_STEREO
+    val channelMask =
+      if (WavHeader.CHANNEL_COUNT == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
     val encoding = AudioFormat.ENCODING_PCM_16BIT
     val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelMask, encoding)
     val bufferSizeInBytes = if (minBufferSize > 0) minBufferSize * 2 else sampleRate * 2
@@ -71,7 +72,9 @@ class AudioCaptureEngine(
         .build()
 
     audioRecord = record
-    outputStream = FileOutputStream(outputFile)
+    val stream = FileOutputStream(outputFile)
+    stream.write(WavHeader.placeholderBytes(sampleRate))
+    outputStream = stream
     running.set(true)
     paused.set(false)
     record.startRecording()
@@ -119,6 +122,21 @@ class AudioCaptureEngine(
   }
 
   fun stop(): Long {
+    teardownRecording()
+    val totalSize = outputFile.length()
+    WavHeader.patchSizes(outputFile, totalSize)
+    return totalSize
+  }
+
+  fun discardAndDelete() {
+    try {
+      teardownRecording()
+    } finally {
+      outputFile.delete()
+    }
+  }
+
+  private fun teardownRecording() {
     running.set(false)
     audioRecord?.stop()
     thread?.join(2000)
@@ -128,6 +146,5 @@ class AudioCaptureEngine(
     outputStream?.flush()
     outputStream?.close()
     outputStream = null
-    return outputFile.length()
   }
 }

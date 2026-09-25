@@ -46,13 +46,14 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     private const val PROJECTION_REQUEST_CODE = 9001
     private const val RECORD_AUDIO_PERMISSION_REQUEST_CODE = 9002
     private const val DEFAULT_SAMPLE_RATE = 48000
-    private const val TEMP_FILE_NAME = "recording.pcm.tmp"
+    private const val TEMP_FILE_NAME = "recording.wav.tmp"
   }
 
   override fun getName(): String = NAME
 
   init {
     reactContext.addActivityEventListener(this)
+    AudioCaptureRecovery.recoverOrphans(reactContext.filesDir)
   }
 
   private var pendingStartPromise: Promise? = null
@@ -216,7 +217,7 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       pendingStartPromise?.resolve(null)
       pendingStartPromise = null
     } catch (e: Exception) {
-      engine?.stop()
+      engine?.discardAndDelete()
       engine = null
       mediaProjection?.stop()
       mediaProjection = null
@@ -277,7 +278,7 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     AudioCaptureService.stop(reactContext)
 
     val tempFile = File(reactContext.filesDir, TEMP_FILE_NAME)
-    val finalFile = File(reactContext.filesDir, "recording-${System.currentTimeMillis()}.pcm")
+    val finalFile = File(reactContext.filesDir, "recording-${System.currentTimeMillis()}.wav")
     if (!tempFile.renameTo(finalFile)) {
       promise.reject("RENAME_FAILED", "Could not finalize the recording file")
       return
@@ -287,6 +288,31 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     result.putString("filePath", finalFile.absolutePath)
     result.putDouble("sizeBytes", sizeBytes.toDouble())
     promise.resolve(result)
+  }
+
+  @ReactMethod
+  @RequiresApi(Build.VERSION_CODES.Q)
+  fun discardCapture(promise: Promise) {
+    val captureEngine = engine
+    if (captureEngine == null) {
+      promise.reject("NOT_RECORDING", "No active capture to discard")
+      return
+    }
+    try {
+      captureEngine.discardAndDelete()
+    } catch (e: Exception) {
+      engine = null
+      mediaProjection?.stop()
+      mediaProjection = null
+      AudioCaptureService.stop(reactContext)
+      promise.reject("DISCARD_FAILED", e.message ?: "Failed to discard audio capture")
+      return
+    }
+    engine = null
+    mediaProjection?.stop()
+    mediaProjection = null
+    AudioCaptureService.stop(reactContext)
+    promise.resolve(null)
   }
 
   @ReactMethod
