@@ -14,12 +14,14 @@ import { MainScreen } from "./MainScreen"
 
 // Mock the native AudioCapture module so tests don't try to load the TurboModule
 jest.mock("../specs/NativeAudioCapture", () => ({
-  isSupported: jest.fn(async () => false),
-  listSources: jest.fn(async () => []),
-  startCapture: jest.fn(async () => {}),
-  pauseCapture: jest.fn(),
-  resumeCapture: jest.fn(),
-  stopCapture: jest.fn(async () => ({ filePath: "", sizeBytes: 0 })),
+  getAudioCaptureNativeModule: () => ({
+    isSupported: jest.fn(async () => false),
+    listSources: jest.fn(async () => []),
+    startCapture: jest.fn(async () => {}),
+    pauseCapture: jest.fn(),
+    resumeCapture: jest.fn(),
+    stopCapture: jest.fn(async () => ({ filePath: "", sizeBytes: 0 })),
+  }),
 }))
 
 function makeMockCapture(sources: AudioSource[]): AudioCapture {

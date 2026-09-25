@@ -1,33 +1,29 @@
 import { DeviceEventEmitter } from "react-native"
 
+const mockNativeModule = {
+  isSupported: jest.fn(async () => true),
+  listSources: jest.fn(async () => [
+    { id: "system-audio", name: "Device Audio" },
+  ]),
+  startCapture: jest.fn(async () => undefined),
+  pauseCapture: jest.fn(),
+  resumeCapture: jest.fn(),
+  stopCapture: jest.fn(async () => ({
+    filePath: "/data/recording.pcm",
+    sizeBytes: 4096,
+  })),
+  addListener: jest.fn(),
+  removeListeners: jest.fn(),
+}
+
 jest.mock("../specs/NativeAudioCapture", () => ({
   __esModule: true,
-  default: {
-    isSupported: jest.fn(async () => true),
-    listSources: jest.fn(async () => [
-      { id: "system-audio", name: "Device Audio" },
-    ]),
-    startCapture: jest.fn(async () => undefined),
-    pauseCapture: jest.fn(),
-    resumeCapture: jest.fn(),
-    stopCapture: jest.fn(async () => ({
-      filePath: "/data/recording.pcm",
-      sizeBytes: 4096,
-    })),
-    addListener: jest.fn(),
-    removeListeners: jest.fn(),
-  },
+  getAudioCaptureNativeModule: () => mockNativeModule,
 }))
 
-import NativeAudioCaptureModule from "../specs/NativeAudioCapture"
 import { AndroidPlaybackCapture } from "./androidPlaybackCapture"
 
-// The mock above always provides a non-null default export; assert that
-// here so the tests can use it without repeating null-guards that only
-// matter for the real, possibly-absent (e.g. on iOS), TurboModule.
-const NativeAudioCapture = NativeAudioCaptureModule as NonNullable<
-  typeof NativeAudioCaptureModule
->
+const NativeAudioCapture = mockNativeModule
 
 describe("AndroidPlaybackCapture", () => {
   afterEach(() => {

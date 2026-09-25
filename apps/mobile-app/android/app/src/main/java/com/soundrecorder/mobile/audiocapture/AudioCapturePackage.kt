@@ -28,7 +28,9 @@ class AudioCapturePackage : BaseReactPackage() {
             false,
             false,
             false,
-            true,
+            // isTurboModule = false: registered as a legacy native module.
+            // See the comment on AudioCaptureModule for why.
+            false,
           )
       )
     }

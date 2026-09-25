@@ -1,6 +1,6 @@
 import { NativeEventEmitter } from "react-native"
 
-import NativeAudioCapture from "../specs/NativeAudioCapture"
+import { getAudioCaptureNativeModule } from "../specs/NativeAudioCapture"
 import type { Spec } from "../specs/NativeAudioCapture"
 import type { AudioCapture, AudioSource, CaptureResult } from "./types"
 
@@ -16,12 +16,13 @@ export class AndroidPlaybackCapture implements AudioCapture {
   private subscription: { remove: () => void } | null = null
 
   constructor() {
-    if (NativeAudioCapture == null) {
+    const nativeModule = getAudioCaptureNativeModule()
+    if (nativeModule == null) {
       throw new Error(
         "AudioCapture native module is not available on this platform"
       )
     }
-    this.nativeModule = NativeAudioCapture
+    this.nativeModule = nativeModule
     this.emitter = new NativeEventEmitter<AudioCaptureEvents>(
       this.nativeModule as unknown as ConstructorParameters<
         typeof NativeEventEmitter
