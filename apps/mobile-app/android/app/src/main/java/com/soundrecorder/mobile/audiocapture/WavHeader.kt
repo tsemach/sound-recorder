@@ -7,8 +7,8 @@ import java.nio.ByteOrder
 
 object WavHeader {
   const val HEADER_SIZE = 44
+  const val CHANNEL_COUNT = 2
   private const val BITS_PER_SAMPLE = 16
-  private const val CHANNEL_COUNT = 2
 
   fun placeholderBytes(sampleRate: Int): ByteArray {
     val byteRate = sampleRate * CHANNEL_COUNT * BITS_PER_SAMPLE / 8
@@ -32,6 +32,9 @@ object WavHeader {
 
   /** [totalSize] is the full file size in bytes, including the 44-byte header. */
   fun patchSizes(file: File, totalSize: Long) {
+    require(totalSize >= HEADER_SIZE) {
+      "totalSize ($totalSize) must be at least HEADER_SIZE ($HEADER_SIZE)"
+    }
     val dataLength = totalSize - HEADER_SIZE
     RandomAccessFile(file, "rw").use { raf ->
       raf.seek(4)

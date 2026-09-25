@@ -217,7 +217,7 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       pendingStartPromise?.resolve(null)
       pendingStartPromise = null
     } catch (e: Exception) {
-      engine?.stop()
+      engine?.discardAndDelete()
       engine = null
       mediaProjection?.stop()
       mediaProjection = null
@@ -298,7 +298,16 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
       promise.reject("NOT_RECORDING", "No active capture to discard")
       return
     }
-    captureEngine.discardAndDelete()
+    try {
+      captureEngine.discardAndDelete()
+    } catch (e: Exception) {
+      engine = null
+      mediaProjection?.stop()
+      mediaProjection = null
+      AudioCaptureService.stop(reactContext)
+      promise.reject("DISCARD_FAILED", e.message ?: "Failed to discard audio capture")
+      return
+    }
     engine = null
     mediaProjection?.stop()
     mediaProjection = null

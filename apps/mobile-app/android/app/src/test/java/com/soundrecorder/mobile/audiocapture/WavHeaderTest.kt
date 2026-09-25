@@ -3,6 +3,7 @@ package com.soundrecorder.mobile.audiocapture
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import javax.sound.sampled.AudioSystem
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -44,6 +45,32 @@ class WavHeaderTest {
       val buffer = ByteBuffer.wrap(patched).order(ByteOrder.LITTLE_ENDIAN)
       assertEquals((tempFile.length() - 8).toInt(), buffer.getInt(4))
       assertEquals(1000, buffer.getInt(40))
+    } finally {
+      tempFile.delete()
+    }
+  }
+
+  @Test
+  fun `patched file parses as a valid WAV with an independent parser`() {
+    val tempFile = File.createTempFile("wavheader-parser-test", ".wav")
+    tempFile.deleteOnExit()
+    try {
+      val sampleRate = 48000
+      val header = WavHeader.placeholderBytes(sampleRate)
+      val dataBytesLength = 1000
+      val dataBytes = ByteArray(dataBytesLength) { it.toByte() }
+      tempFile.writeBytes(header + dataBytes)
+
+      WavHeader.patchSizes(tempFile, tempFile.length())
+
+      val audioInputStream = AudioSystem.getAudioInputStream(tempFile)
+      audioInputStream.use { stream ->
+        val format = stream.format
+        assertEquals(sampleRate.toFloat(), format.sampleRate)
+        assertEquals(2, format.channels)
+        assertEquals(16, format.sampleSizeInBits)
+        assertEquals((dataBytesLength / 4).toLong(), stream.frameLength)
+      }
     } finally {
       tempFile.delete()
     }

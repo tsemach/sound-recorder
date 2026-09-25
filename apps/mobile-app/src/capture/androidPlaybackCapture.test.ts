@@ -9,7 +9,7 @@ const mockNativeModule = {
   pauseCapture: jest.fn(),
   resumeCapture: jest.fn(),
   stopCapture: jest.fn(async () => ({
-    filePath: "/data/recording.pcm",
+    filePath: "/data/recording.wav",
     sizeBytes: 4096,
   })),
   discardCapture: jest.fn(async () => undefined),
@@ -76,7 +76,7 @@ describe("AndroidPlaybackCapture", () => {
 
     expect(NativeAudioCapture.pauseCapture).toHaveBeenCalled()
     expect(NativeAudioCapture.resumeCapture).toHaveBeenCalled()
-    expect(result).toEqual({ filePath: "/data/recording.pcm", sizeBytes: 4096 })
+    expect(result).toEqual({ filePath: "/data/recording.wav", sizeBytes: 4096 })
   })
 
   it("removes the level subscription and calls discardCapture on discard", async () => {
