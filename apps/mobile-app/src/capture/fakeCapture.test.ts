@@ -95,4 +95,17 @@ describe("FakeCapture", () => {
     expect(result.filePath).toMatch(/^fake\/recording-\d+\.wav$/)
     expect(result.sizeBytes).toBe(0)
   })
+
+  it("discard() stops reporting levels and resolves", async () => {
+    const capture = new FakeCapture()
+    const levels: number[] = []
+    await capture.start("fake-system-audio", (level) => levels.push(level))
+
+    jest.advanceTimersByTime(40)
+    await capture.discard()
+    const countAtDiscard = levels.length
+
+    jest.advanceTimersByTime(100)
+    expect(levels.length).toBe(countAtDiscard)
+  })
 })

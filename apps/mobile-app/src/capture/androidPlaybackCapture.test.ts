@@ -12,6 +12,7 @@ const mockNativeModule = {
     filePath: "/data/recording.pcm",
     sizeBytes: 4096,
   })),
+  discardCapture: jest.fn(async () => undefined),
   addListener: jest.fn(),
   removeListeners: jest.fn(),
 }
@@ -76,6 +77,18 @@ describe("AndroidPlaybackCapture", () => {
     expect(NativeAudioCapture.pauseCapture).toHaveBeenCalled()
     expect(NativeAudioCapture.resumeCapture).toHaveBeenCalled()
     expect(result).toEqual({ filePath: "/data/recording.pcm", sizeBytes: 4096 })
+  })
+
+  it("removes the level subscription and calls discardCapture on discard", async () => {
+    const capture = new AndroidPlaybackCapture()
+    const levels: number[] = []
+    await capture.start("system-audio", (level) => levels.push(level))
+
+    await capture.discard()
+
+    expect(NativeAudioCapture.discardCapture).toHaveBeenCalled()
+    DeviceEventEmitter.emit("AudioCaptureLevel", 0.9)
+    expect(levels).toEqual([])
   })
 
   it("cleans up the level subscription if startCapture rejects", async () => {

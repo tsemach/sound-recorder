@@ -16,6 +16,7 @@ export interface Spec {
   pauseCapture(): void
   resumeCapture(): void
   stopCapture(): Promise<{ filePath: string; sizeBytes: number }>
+  discardCapture(): Promise<void>
   addListener(eventName: string): void
   removeListeners(count: number): void
 }

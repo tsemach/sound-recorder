@@ -8,4 +8,5 @@ export interface AudioCapture {
   pause(): void
   resume(): void
   stop(): Promise<CaptureResult>
+  discard(): Promise<void>
 }
