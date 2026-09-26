@@ -4,7 +4,11 @@ export type CaptureResult = { filePath: string; sizeBytes: number }
 
 export interface AudioCapture {
   listSources(): Promise<AudioSource[]>
-  start(sourceId: string, onLevel: (level: number) => void): Promise<void>
+  start(
+    sourceId: string,
+    onLevel: (level: number) => void,
+    onError?: (message: string) => void
+  ): Promise<void>
   pause(): void
   resume(): void
   stop(): Promise<CaptureResult>

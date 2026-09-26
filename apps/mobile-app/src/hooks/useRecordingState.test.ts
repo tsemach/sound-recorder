@@ -18,26 +18,40 @@ jest.mock("../specs/NativeAudioCapture", () => ({
 
 function makeMockCapture(sources: AudioSource[]): AudioCapture & {
   emitLevel: (level: number) => void
+  emitError: (message: string) => void
 } {
   let onLevel: ((level: number) => void) | null = null
+  let onError: ((message: string) => void) | null = null
   return {
     listSources: jest.fn(async () => sources),
-    start: jest.fn(async (_sourceId: string, cb: (level: number) => void) => {
-      onLevel = cb
-    }),
+    start: jest.fn(
+      async (
+        _sourceId: string,
+        cb: (level: number) => void,
+        errCb?: (message: string) => void
+      ) => {
+        onLevel = cb
+        onError = errCb ?? null
+      }
+    ),
     pause: jest.fn(),
     resume: jest.fn(),
     stop: jest.fn(
       async (): Promise<CaptureResult> => {
         onLevel = null
+        onError = null
         return { filePath: "mock/recording.wav", sizeBytes: 1024 }
       }
     ),
     discard: jest.fn(async () => {
       onLevel = null
+      onError = null
     }),
     emitLevel(level: number) {
       onLevel?.(level)
+    },
+    emitError(message: string) {
+      onError?.(message)
     },
   }
 }
@@ -231,6 +245,53 @@ describe("useRecordingState", () => {
       recoverable: true,
     })
     expect(result.current.error).toBe("device busy")
+  })
+
+  it("transitions to a recoverable Error state when the capture reports a mid-recording error", async () => {
+    const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
+    const { result } = renderHook(() => useRecordingState(capture))
+    await waitFor(() => expect(result.current.sources).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.startRecording("s1")
+    })
+
+    act(() => {
+      capture.emitError("storage is critically low")
+    })
+
+    expect(result.current.state).toEqual({
+      state: "Error",
+      message: "storage is critically low",
+      recoverable: true,
+    })
+    expect(result.current.error).toBe("storage is critically low")
+  })
+
+  it("stops the tick loop and zeroes the level meter when a mid-recording error arrives", async () => {
+    const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
+    const { result } = renderHook(() => useRecordingState(capture))
+    await waitFor(() => expect(result.current.sources).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.startRecording("s1")
+    })
+
+    act(() => {
+      capture.emitLevel(0.8)
+    })
+    expect(result.current.level).toBe(0.8)
+    const timerCountWhileRecording = jest.getTimerCount()
+
+    act(() => {
+      capture.emitError("storage is critically low")
+    })
+
+    expect(result.current.level).toBe(0)
+    // The tick interval is cleared (not just left running uselessly) —
+    // compared relatively, since the test environment may hold other
+    // unrelated timers of its own.
+    expect(jest.getTimerCount()).toBeLessThan(timerCountWhileRecording)
   })
 
   it("falls back to FakeCapture on a non-Android platform when no capture is given", async () => {

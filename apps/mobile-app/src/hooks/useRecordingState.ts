@@ -107,9 +107,17 @@ export function useRecordingState(capture?: AudioCapture) {
         const source = sources.find((candidate) => candidate.id === sourceId)
         const sourceName = source?.name ?? sourceId
         applyState(prepare(stateRef.current))
-        await activeCapture.start(sourceId, (nextLevel) => {
-          setLevel(nextLevel)
-        })
+        await activeCapture.start(
+          sourceId,
+          (nextLevel) => {
+            setLevel(nextLevel)
+          },
+          (message) => {
+            stopTickLoop()
+            setLevel(0)
+            handleFailure(new Error(message))
+          }
+        )
         startedAtRef.current = Date.now()
         pausedAccumRef.current = 0
         applyState(begin(stateRef.current, sourceName))

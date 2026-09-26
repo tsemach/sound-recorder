@@ -5,15 +5,17 @@ import type { Spec } from "../specs/NativeAudioCapture"
 import type { AudioCapture, AudioSource, CaptureResult } from "./types"
 
 const LEVEL_EVENT = "AudioCaptureLevel"
+const ERROR_EVENT = "AudioCaptureError"
 
 type AudioCaptureEvents = {
   [LEVEL_EVENT]: [number]
+  [ERROR_EVENT]: [string]
 }
 
 export class AndroidPlaybackCapture implements AudioCapture {
   private nativeModule: Spec
   private emitter: NativeEventEmitter<AudioCaptureEvents>
-  private subscription: { remove: () => void } | null = null
+  private subscriptions: { remove: () => void }[] = []
 
   constructor() {
     const nativeModule = getAudioCaptureNativeModule()
@@ -38,20 +40,24 @@ export class AndroidPlaybackCapture implements AudioCapture {
 
   async start(
     sourceId: string,
-    onLevel: (level: number) => void
+    onLevel: (level: number) => void,
+    onError?: (message: string) => void
   ): Promise<void> {
-    this.subscription?.remove()
-    this.subscription = this.emitter.addListener(
-      LEVEL_EVENT,
-      (level: number) => {
+    this.removeSubscriptions()
+    this.subscriptions.push(
+      this.emitter.addListener(LEVEL_EVENT, (level: number) => {
         onLevel(level)
-      }
+      })
+    )
+    this.subscriptions.push(
+      this.emitter.addListener(ERROR_EVENT, (message: string) => {
+        onError?.(message)
+      })
     )
     try {
       await this.nativeModule.startCapture(sourceId)
     } catch (err) {
-      this.subscription?.remove()
-      this.subscription = null
+      this.removeSubscriptions()
       throw err
     }
   }
@@ -65,14 +71,19 @@ export class AndroidPlaybackCapture implements AudioCapture {
   }
 
   async stop(): Promise<CaptureResult> {
-    this.subscription?.remove()
-    this.subscription = null
+    this.removeSubscriptions()
     return this.nativeModule.stopCapture()
   }
 
   async discard(): Promise<void> {
-    this.subscription?.remove()
-    this.subscription = null
+    this.removeSubscriptions()
     await this.nativeModule.discardCapture()
+  }
+
+  private removeSubscriptions(): void {
+    for (const subscription of this.subscriptions) {
+      subscription.remove()
+    }
+    this.subscriptions = []
   }
 }
