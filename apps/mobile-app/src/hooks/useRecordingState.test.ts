@@ -36,13 +36,11 @@ function makeMockCapture(sources: AudioSource[]): AudioCapture & {
     ),
     pause: jest.fn(),
     resume: jest.fn(),
-    stop: jest.fn(
-      async (): Promise<CaptureResult> => {
-        onLevel = null
-        onError = null
-        return { filePath: "mock/recording.wav", sizeBytes: 1024 }
-      }
-    ),
+    stop: jest.fn(async (): Promise<CaptureResult> => {
+      onLevel = null
+      onError = null
+      return { filePath: "mock/recording.wav", sizeBytes: 1024 }
+    }),
     discard: jest.fn(async () => {
       onLevel = null
       onError = null
@@ -292,6 +290,51 @@ describe("useRecordingState", () => {
     // compared relatively, since the test environment may hold other
     // unrelated timers of its own.
     expect(jest.getTimerCount()).toBeLessThan(timerCountWhileRecording)
+  })
+
+  it("ignores a late error event that arrives once stopRecording has moved past active recording", async () => {
+    const capture = makeMockCapture([{ id: "s1", name: "Source 1" }])
+    let resolveStop: ((result: CaptureResult) => void) | null = null
+    capture.stop = jest.fn(
+      () =>
+        new Promise<CaptureResult>((resolve) => {
+          resolveStop = resolve
+        })
+    )
+    const { result } = renderHook(() => useRecordingState(capture))
+    await waitFor(() => expect(result.current.sources).toHaveLength(1))
+
+    await act(async () => {
+      await result.current.startRecording("s1")
+    })
+
+    let stopPromise!: Promise<void>
+    act(() => {
+      stopPromise = result.current.stopRecording()
+    })
+
+    expect(result.current.state).toEqual({ state: "Saving" })
+
+    // A native error event lands while stopRecording is still awaiting
+    // activeCapture.stop() (state "Saving") — it must not clobber the
+    // in-flight save with an Error state.
+    act(() => {
+      capture.emitError("storage is critically low")
+    })
+
+    expect(result.current.state).toEqual({ state: "Saving" })
+    expect(result.current.error).toBeNull()
+
+    await act(async () => {
+      resolveStop?.({ filePath: "mock/recording.wav", sizeBytes: 1024 })
+      await stopPromise
+    })
+
+    const state = result.current.state
+    expect(state.state).toBe("Saved")
+    if (state.state === "Saved") {
+      expect(state.filePath).toBe("mock/recording.wav")
+    }
   })
 
   it("falls back to FakeCapture on a non-Android platform when no capture is given", async () => {

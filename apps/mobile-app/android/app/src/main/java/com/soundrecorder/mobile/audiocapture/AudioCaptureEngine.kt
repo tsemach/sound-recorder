@@ -100,11 +100,16 @@ class AudioCaptureEngine(
               }
               if (now - lastStorageCheckAt >= STORAGE_CHECK_INTERVAL_MS) {
                 lastStorageCheckAt = now
-                val availableBytes = StatFs(outputFile.path).availableBytes
+                val availableBytes =
+                  StatFs(outputFile.parentFile?.path ?: outputFile.path).availableBytes
                 if (StorageThreshold.isBelowThreshold(availableBytes)) {
                   android.util.Log.w("AudioCaptureEngine", "stopping: storage below threshold")
                   running.set(false)
-                  releaseAudioResources()
+                  try {
+                    releaseAudioResources()
+                  } catch (releaseError: Exception) {
+                    android.util.Log.e("AudioCaptureEngine", "release after failure failed", releaseError)
+                  }
                   onError("Recording stopped: storage is critically low")
                 }
               }
@@ -112,7 +117,11 @@ class AudioCaptureEngine(
           } catch (e: Exception) {
             android.util.Log.e("AudioCaptureEngine", "capture read loop failed", e)
             running.set(false)
-            releaseAudioResources()
+            try {
+              releaseAudioResources()
+            } catch (releaseError: Exception) {
+              android.util.Log.e("AudioCaptureEngine", "release after failure failed", releaseError)
+            }
             onError(e.message ?: "Recording failed unexpectedly")
           }
         }
