@@ -25,7 +25,9 @@ export function useRecordingState(capture?: AudioCapture) {
   const fallbackRef = useRef<AudioCapture | null>(null)
   if (fallbackRef.current === null) {
     fallbackRef.current =
-      Platform.OS === "android" ? new AndroidPlaybackCapture() : new FakeCapture()
+      Platform.OS === "android"
+        ? new AndroidPlaybackCapture()
+        : new FakeCapture()
   }
   const activeCapture = capture ?? fallbackRef.current
 
@@ -107,9 +109,23 @@ export function useRecordingState(capture?: AudioCapture) {
         const source = sources.find((candidate) => candidate.id === sourceId)
         const sourceName = source?.name ?? sourceId
         applyState(prepare(stateRef.current))
-        await activeCapture.start(sourceId, (nextLevel) => {
-          setLevel(nextLevel)
-        })
+        await activeCapture.start(
+          sourceId,
+          (nextLevel) => {
+            setLevel(nextLevel)
+          },
+          (message) => {
+            if (
+              stateRef.current.state === "Saving" ||
+              stateRef.current.state === "Saved"
+            ) {
+              return
+            }
+            stopTickLoop()
+            setLevel(0)
+            handleFailure(new Error(message))
+          }
+        )
         startedAtRef.current = Date.now()
         pausedAccumRef.current = 0
         applyState(begin(stateRef.current, sourceName))

@@ -9,6 +9,7 @@ import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.StatFs
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
@@ -57,8 +58,8 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
   }
 
   private var pendingStartPromise: Promise? = null
-  private var mediaProjection: MediaProjection? = null
-  private var engine: AudioCaptureEngine? = null
+  @Volatile private var mediaProjection: MediaProjection? = null
+  @Volatile private var engine: AudioCaptureEngine? = null
 
   @ReactMethod
   fun isSupported(promise: Promise) {
@@ -92,6 +93,15 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     val activity = reactContext.currentActivity
     if (activity == null) {
       promise.reject("NO_ACTIVITY", "No current activity to request capture permission from")
+      return
+    }
+    val availableBytes = StatFs(reactContext.filesDir.path).availableBytes
+    if (StorageThreshold.isBelowThreshold(availableBytes)) {
+      promise.reject(
+        "INSUFFICIENT_STORAGE",
+        "Not enough free storage to start recording (need at least " +
+          "${StorageThreshold.MIN_FREE_BYTES / (1024 * 1024)}MB free)",
+      )
       return
     }
     pendingStartPromise = promise
@@ -210,6 +220,7 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
           mediaProjection = projection,
           outputFile = outputFile,
           onLevel = { level -> emitLevel(level) },
+          onError = { message -> handleCaptureError(message) },
         )
       engine = captureEngine
       captureEngine.start(sampleRate)
@@ -237,6 +248,32 @@ class AudioCaptureModule(private val reactContext: ReactApplicationContext) :
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
       .emit("AudioCaptureLevel", level.toDouble())
+  }
+
+  // Invoked by the engine (from its read-loop thread) when it hits a fatal
+  // failure — either the new in-flight storage check or any other capture
+  // exception. The engine has already released its own AudioRecord/output
+  // stream by this point; this only tears down what the module itself owns
+  // (the projection and foreground service), the same way stopCapture/
+  // discardCapture do. The resulting error is reported as recoverable, so
+  // the user can retry recording in the same session — which would open a
+  // fresh stream on the same temp filename and truncate the orphaned partial
+  // recording before a relaunch-triggered recovery scan ever got to it.
+  // Running the recovery scan immediately (safe here since the engine already
+  // closed its output stream before calling onError) patches and renames the
+  // orphan out of the way first.
+  // Only ever invoked via the onError callback passed to AudioCaptureEngine,
+  // itself only constructible under the SDK_INT >= Q guard in startCapture().
+  @RequiresApi(Build.VERSION_CODES.Q)
+  private fun handleCaptureError(message: String) {
+    engine = null
+    AudioCaptureRecovery.recoverOrphans(reactContext.filesDir)
+    mediaProjection?.stop()
+    mediaProjection = null
+    AudioCaptureService.stop(reactContext)
+    reactContext
+      .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit("AudioCaptureError", message)
   }
 
   // A non-null engine only ever exists after onActivityResult constructed it

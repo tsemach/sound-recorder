@@ -105,4 +105,45 @@ describe("AndroidPlaybackCapture", () => {
     DeviceEventEmitter.emit("AudioCaptureLevel", 0.5)
     expect(levels).toEqual([])
   })
+
+  it("forwards error events emitted by the native module to the onError callback", async () => {
+    const capture = new AndroidPlaybackCapture()
+    const errors: string[] = []
+    await capture.start(
+      "system-audio",
+      () => {},
+      (message) => errors.push(message)
+    )
+
+    DeviceEventEmitter.emit("AudioCaptureError", "storage is critically low")
+
+    expect(errors).toEqual(["storage is critically low"])
+    await capture.stop()
+  })
+
+  it("stops listening for error events after stop", async () => {
+    const capture = new AndroidPlaybackCapture()
+    const errors: string[] = []
+    await capture.start(
+      "system-audio",
+      () => {},
+      (message) => errors.push(message)
+    )
+    await capture.stop()
+
+    DeviceEventEmitter.emit("AudioCaptureError", "storage is critically low")
+
+    expect(errors).toEqual([])
+  })
+
+  it("does not throw when an error event arrives and no onError callback was given", async () => {
+    const capture = new AndroidPlaybackCapture()
+    await capture.start("system-audio", () => {})
+
+    expect(() =>
+      DeviceEventEmitter.emit("AudioCaptureError", "storage is critically low")
+    ).not.toThrow()
+
+    await capture.stop()
+  })
 })
