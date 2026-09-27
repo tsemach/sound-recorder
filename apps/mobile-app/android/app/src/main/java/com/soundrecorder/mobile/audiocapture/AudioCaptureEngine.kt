@@ -7,6 +7,7 @@ import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.projection.MediaProjection
 import android.os.Build
+import android.os.StatFs
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import java.io.File
@@ -21,9 +22,11 @@ class AudioCaptureEngine(
   private val mediaProjection: MediaProjection,
   private val outputFile: File,
   private val onLevel: (Float) -> Unit,
+  private val onError: (String) -> Unit,
 ) {
   companion object {
     private const val LEVEL_EMIT_INTERVAL_MS = 100L
+    private const val STORAGE_CHECK_INTERVAL_MS = 5000L
 
     fun computeLevel(buffer: ShortArray, readCount: Int): Float {
       if (readCount == 0) return 0f
@@ -83,6 +86,7 @@ class AudioCaptureEngine(
       Thread {
         val buffer = ShortArray(bufferSizeInBytes / 2)
         var lastEmitAt = 0L
+        var lastStorageCheckAt = 0L
         while (running.get()) {
           try {
             val readCount = record.read(buffer, 0, buffer.size)
@@ -94,10 +98,22 @@ class AudioCaptureEngine(
                 onLevel(computeLevel(buffer, readCount))
                 lastEmitAt = now
               }
+              if (now - lastStorageCheckAt >= STORAGE_CHECK_INTERVAL_MS) {
+                lastStorageCheckAt = now
+                val availableBytes = StatFs(outputFile.path).availableBytes
+                if (StorageThreshold.isBelowThreshold(availableBytes)) {
+                  android.util.Log.w("AudioCaptureEngine", "stopping: storage below threshold")
+                  running.set(false)
+                  releaseAudioResources()
+                  onError("Recording stopped: storage is critically low")
+                }
+              }
             }
           } catch (e: Exception) {
             android.util.Log.e("AudioCaptureEngine", "capture read loop failed", e)
             running.set(false)
+            releaseAudioResources()
+            onError(e.message ?: "Recording failed unexpectedly")
           }
         }
       }
@@ -138,9 +154,17 @@ class AudioCaptureEngine(
 
   private fun teardownRecording() {
     running.set(false)
-    audioRecord?.stop()
     thread?.join(2000)
     thread = null
+    releaseAudioResources()
+  }
+
+  // Called both from teardownRecording() (a different thread joining the read
+  // thread first) and directly from inside the read loop's own thread on a
+  // fatal failure (self-join would just block pointlessly, since a thread
+  // can never observe itself as finished while still running the join call).
+  private fun releaseAudioResources() {
+    audioRecord?.stop()
     audioRecord?.release()
     audioRecord = null
     outputStream?.flush()
